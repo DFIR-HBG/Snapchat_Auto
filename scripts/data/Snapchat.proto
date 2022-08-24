@@ -1,0 +1,43 @@
+syntax = "proto2";
+
+message root{
+required uint64 id = 1;
+required content Content= 4;
+optional time timestamps = 6;
+}
+
+message time{
+required uint64 created = 1;
+optional uint64 read = 2;
+}
+
+message content{
+optional content2 chat = 4;
+optional content2 startMedia = 5;
+}
+
+message content2{
+optional text chatMessage = 2;
+optional fill1 unknown = 1;
+optional fill1 mediatext = 7;
+}
+
+message fill1{
+optional fill2 unknown = 3;
+optional media mediatext2 = 11;
+}
+
+message fill2{
+optional media unknown = 2;
+
+}
+
+message media{
+optional string cacheId = 2;
+optional string mediatextFinal = 1;
+}
+
+message text{
+optional string message = 1;
+}
+
