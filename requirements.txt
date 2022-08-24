@@ -1,0 +1,5 @@
+pandas~=1.3.5
+numpy~=1.21.4
+filetype~=1.0.8
+blackboxprotobuf~=1.0.1
+PySimpleGUI~=4.16.0
