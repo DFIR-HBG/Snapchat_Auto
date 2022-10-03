@@ -23,7 +23,9 @@ from time import time
 import numpy as np
 import math
 import blackboxprotobuf
-
+import xml.etree as ET
+import hashlib
+from scripts import DecryptLocalMemories_iOS
 
 def proto_to_msg(bin_file):
     messages_found = []
@@ -40,6 +42,9 @@ def proto_to_msg(bin_file):
         try:
             messages_found = [(message['4']['4']['2']['1'].decode())]
         except:
+            for i in messages_found:
+                if '.1020' in i:
+                    messages_found = i
             pass
     return messages_found
 
@@ -57,10 +62,16 @@ def getHtml(final_df, friends_df, group_df):
     
     if getattr(sys, 'frozen', False):
         exe_path = sys._MEIPASS
-        shutil.copytree(f"{exe_path}/css", f"{outputDir}/css")
+        try:
+            shutil.copytree(f"{exe_path}/css", f"{outputDir}/css")
+        except:
+            print("Could not copy the CSS folder, result might look a bit worse")
     else:
         exe_path = os.path.dirname(os.path.abspath(__file__))
-        shutil.copytree(f"{exe_path}/data/css", f"{outputDir}/css")
+        try:
+            shutil.copytree(f"{exe_path}/data/css", f"{outputDir}/css")
+        except:
+            print("Could not copy the CSS folder, result might look a bit worse")
     
     print("Writing HTML report")
     for index, row in final_df.iterrows():
@@ -182,6 +193,7 @@ def getUserIDFromGroups(group_plist):
     df = pd.DataFrame.from_dict(lista)
     df = df.sort_values(by="Timestamp", ascending=False)
     for i in df["Userid"]:
+        print(f"User ID: {i}")
         return(i)
 
 def getUserIDFromArroyo(arroyo):
@@ -193,8 +205,168 @@ def getUserIDFromArroyo(arroyo):
     """
     df = pd.read_sql_query(messagesQuery, conn)
     
+    print(f"User ID: {df['value'][0]}")
     return df["value"][0]
     
+def getFriendsAppGroupPlistStorage(app_group_plist_storage_list, arroyo):
+    
+    if len(app_group_plist_storage_list) == 0:
+        raise KeyError
+    
+    app_group_plist_storage_user = ""
+    app_group_plist_storage_friends_groups = ""
+    
+    print("Did not find friends in Groups plist, trying from app_group_plist_storage")
+    
+    if len(app_group_plist_storage_list) == 1:
+        app_group_plist_storage_friends_groups = app_group_plist_storage_list[0]
+    else:
+        for i in app_group_plist_storage_list:
+            if "User" in i:
+                app_group_plist_storage_user = i
+            else:
+                app_group_plist_storage_friends_groups = i
+    # else: #Sorts the files based on size, the biggest one should contain friends/groups. The smallest one should contain info about the logged in user
+        # app_group_plist_storage_list = sorted(app_group_plist_storage_list, key = lambda x: os.stat(x).st_size)
+        # app_group_plist_storage_friends_groups = app_group_plist_storage_list[-1]
+        # app_group_plist_storage_user = app_group_plist_storage_list[0]
+    
+    print(f"Friends: {app_group_plist_storage_friends_groups}")
+    print(f"Userdata: {app_group_plist_storage_user}")
+
+    with open(app_group_plist_storage_friends_groups, "rb") as f:
+        data = plistlib.loads(f.read())
+
+    with open("test.plist", "wb") as test:
+        try:
+            test.write(data["snapchatter_repository"])
+        except KeyError:
+            try:
+                test.write(data["share_user"])
+                print("found share_user in app_group_plist_storage")
+                friends_df, group_df = getFriendsPlist(app_group_plist_storage_friends_groups)
+                return friends_df, group_df
+            except KeyError:
+                raise KeyError
+
+    with open("test.plist", "rb") as test:
+        plist = ccl_bplist.load(test)
+        data1 = ccl_bplist.deserialise_NsKeyedArchiver(plist)    
+    
+    if app_group_plist_storage_user != "":
+        with open(app_group_plist_storage_user, "rb") as f:
+            userdata = plistlib.loads(f.read())
+    
+    display = []
+    name = []
+    conversation_id = []
+    group_participants = []
+    user_id = []
+    group_name = ""
+    groups = {"Group Name": [], "Participants": [], "Conversation ID": []}
+    df_group = pd.DataFrame(columns=['Group Name', 'Participants', 'Conversation ID'])
+
+    try:  #Gathers info on logged in user
+        current_username = "<b>" + userdata["username"] + "</b>"
+        current_userid = userdata["userId"]
+        name.append(current_username)
+        user_id.append(current_userid)
+        conversation_id.append("")
+        display.append("")
+    except:
+        print("Could not find logged in user info")
+        
+    for i in data1["FRIENDS"]["NS.objects"]: #Getting info in Friends
+        try:
+            user_id.append(i["USER_ID"])
+        except:
+            user_id.append("Unknown")
+
+        try:
+            tmp_display = i["NAME_TO_DISPLAY"].encode('cp1252', 'xmlcharrefreplace')
+            tmp_display = tmp_display.decode('cp1252')
+            display.append(tmp_display)
+        except:
+            display.append("Unknown")
+
+        try:
+            name.append(i["USERNAME"])
+        except:
+            name.append("Unknown")
+
+        try:
+            conversation_id.append(i["CONVERSATION_ID"])
+        except:
+            conversation_id.append("Unknown")
+
+    resultat = {'Display name': display, 'Username': name, 'User ID': user_id, 'Conversation ID': conversation_id}
+    try:
+        friends_df = pd.DataFrame(resultat)
+        friends_df = friends_df.drop_duplicates()
+    except Exception as Error:
+        print(f"Error creating Friends DataFrame: {Error}")    
+    
+    for i in data1["GROUPS"]["NS.objects"]: #Getting info on Chat groups
+        try:
+            group_name = i['GROUP_NAME'].encode('cp1252', 'xmlcharrefreplace').decode(
+                'cp1252')
+            group_id = i['GROUP_ID']
+        except Exception as Error:
+            print("Group ID/Name Error:", Error)
+        group_participants = []
+        try:
+            if i['GROUP_PARTICIPANTS_USER_NAMES'] != "$null":
+                for j in i['GROUP_PARTICIPANTS_USER_NAMES']['NS.objects']:
+                    group_participants.append(str(j))
+        except Exception as Error:
+            print("Group participant username Error:", Error)
+
+        groups["Conversation ID"].append(group_id)
+        groups["Group Name"].append(group_name)
+        groups["Participants"].append(group_participants)
+        
+    group_df = pd.DataFrame(groups)
+    
+    try: #Getting info on Chat groups that does not have a set name (Might not be needed, will need more testing)
+        query = """select 
+        client_conversation_id as "Conversation ID",
+        group_concat(user_id) as "User ID"
+        from user_conversation where conversation_type is 1
+        group by client_conversation_id"""
+        conn = sqlite3.connect(arroyo)
+        df = pd.read_sql_query(query, conn)
+        grupper = {"Group Name":[], "Participants": [], "Conversation ID": []}
+
+        for index, row in df.iterrows():
+            conv_id = row["Conversation ID"]
+            users = []
+            for i in row["User ID"].split(","):
+                try:
+                    username = friends_df["Username"].loc[friends_df['User ID']==i]
+                    username = (username.item())
+                    users.append(username)
+                except:
+                    users.append(i)
+            grupper["Conversation ID"].append(conv_id)
+            grupper["Participants"].append(users)
+            grupper["Group Name"].append("No Group Name")
+        #print(grupper)
+    except Exception as E:
+        print(f"Error getting chat groups with no name, this is not expected but will not break anything major: {E}")
+        
+    df_group_noname = pd.DataFrame(grupper)
+    
+    for index, row in df_group_noname.iterrows():
+        try:
+            if row["Conversation ID"] not in group_df["Conversation ID"].values:
+                try:
+                    group_df = group_df.append(row)
+                except Exception as E:
+                    raise Exception
+        except Exception as E:
+            print(f"Error appending chat groups with no name, this is not expected but will not break anything major: {E}")
+            
+    return friends_df, group_df
 
 def getFriendsPlist(group_plist):
     print("Getting friends and groups from " + ntpath.basename(group_plist))
@@ -205,19 +377,17 @@ def getFriendsPlist(group_plist):
         try:
             test.write(data["share_user"])
         except KeyError:
-            print("Can not find key 'share_user' in plist, getting friends and groups from primary.docobjects and arroyo.db")
+            print("Can not find key 'share_user' in Group plist")
             try:
                 test.write(data["user"])
                 print(
                     "Found key 'user' in plist, this is an older version of storing friends not yet supported by this script")
             except:
-                return
+                raise Exception
 
     with open("test.plist", "rb") as test:
         plist = ccl_bplist.load(test)
         data1 = ccl_bplist.deserialise_NsKeyedArchiver(plist)
-    if os.path.exists("test.plist"):
-        os.remove("test.plist")
 
     display = []
     name = []
@@ -237,7 +407,7 @@ def getFriendsPlist(group_plist):
         display.append("")
     except:
         print("Could not find logged in user info")
-
+        
     for i in data1["SECTIONS"]["NS.objects"]:
         friends = i["DESTINATIONS"]["NS.objects"]
         for i in friends:
@@ -271,7 +441,10 @@ def getFriendsPlist(group_plist):
                 try:
                     user_id.append(i["FRIEND_BITMOJI_INFO"]["USER_ID"])
                 except:
-                    user_id.append("Unknown")
+                    try:
+                        user_id.append(i["FRIEND_USER_ID"])
+                    except:
+                        user_id.append("Unknown")
 
                 try:
                     tmp_display = i["FRIEND_DISPLAY"].encode('cp1252', 'xmlcharrefreplace')
@@ -301,14 +474,13 @@ def getFriendsPlist(group_plist):
 
     df_friends = df_friends.drop_duplicates()
 
-    print("")
     return df_friends, df_group
 
 
 def getFriendsPrimary_DisplayMetadata(primary, arroyo):
-    print(f"Could not get friends from default location, trying from secondary location {ntpath.basename(primary)} and {ntpath.basename(arroyo)} (EXPERIMENTAL)")
+    print(f"Could not get friends from default location, trying from third location {ntpath.basename(primary)} and {ntpath.basename(arroyo)} (EXPERIMENTAL)")
     #print("Gathering friends from " + ntpath.basename(primary))
-    print("WARNING - CAN contain users that are not friends")
+    print("WARNING - MIGHT contain users that are not friends")
     conn = sqlite3.connect(primary)
     messagesQuery = """select
     userId as 'User ID',
@@ -402,26 +574,29 @@ def getFriendsPrimary_DisplayMetadata(primary, arroyo):
     return df_friends, df_group, df_snapchatter
     
     
-def getFriendsPrimary(primary):
+def getFriendsPrimary(primary, arroyo):
     print("Gathering friends from " + ntpath.basename(primary))
     print("WARNING - WILL contain users that are not friends")
-    conn = sqlite3.connect(primary)
-    messagesQuery = """select
-    snapchatter.userId as 'User ID',
-    snapchatter.rowid,
-    index_snapchatterusername.username as 'Username'
-    from snapchatter
-    inner join index_snapchatterusername ON snapchatter.rowid=index_snapchatterusername.rowid
-    """
-    df = pd.read_sql_query(messagesQuery, conn)
-    df = df.rename(columns={"userId" : "User ID", "username" : "Username"})
+    try:
+        conn = sqlite3.connect(primary)
+        messagesQuery = """select
+        snapchatter.userId as 'User ID',
+        snapchatter.rowid,
+        index_snapchatterusername.username as 'Username'
+        from snapchatter
+        inner join index_snapchatterusername ON snapchatter.rowid=index_snapchatterusername.rowid
+        """
+        df = pd.read_sql_query(messagesQuery, conn)
+        df = df.rename(columns={"userId" : "User ID", "username" : "Username"})
 
-    df_group = pd.DataFrame(columns=['Group Name', 'Participants', 'Conversation ID'])
-    if len(df) == 0:
-        df = getFriendsPrimary_DisplayMetadata(primary)
+        df_group = pd.DataFrame(columns=['Group Name', 'Participants', 'Conversation ID'])
+        if len(df) == 0:
+            raise Exception
 
-    print("")
-    return df, df_group
+        print("")
+        return df, df_group
+    except:
+        raise Exception
 
 
 def fixSenders(df_messages, df_friends, df_snapchatter):
@@ -518,11 +693,11 @@ def getCache(cachecontroller):
     if uuid != "":
         messagesQuery = f"""select
         *
-        from CACHE_FILE_CLAIM where USER_ID is '{uuid}' and MEDIA_CONTEXT_TYPE is 3 and DELETED_TIMESTAMP_MILLIS is 0"""
+        from CACHE_FILE_CLAIM where USER_ID is '{uuid}' and MEDIA_CONTEXT_TYPE in (3,19) and DELETED_TIMESTAMP_MILLIS is 0"""
     else:
         messagesQuery = f"""select
         *
-        from CACHE_FILE_CLAIM where MEDIA_CONTEXT_TYPE is 3 and DELETED_TIMESTAMP_MILLIS is 0"""
+        from CACHE_FILE_CLAIM where MEDIA_CONTEXT_TYPE in (3,19) and DELETED_TIMESTAMP_MILLIS is 0"""
     df_cache = pd.read_sql_query(messagesQuery, conn)   
     foundFiles = glob.glob(SCContentFolder + '*')
     tmp = []
@@ -531,6 +706,11 @@ def getCache(cachecontroller):
         tmp.append(item)
     foundFiles = tmp
 
+    if keychain_file is not "":
+        df_merge = DecryptLocalMemories_iOS.main(galleryEncrypteddb, scdb, keychain_file, df_cache, SCContentFolder)
+        print("")
+        print("Getting cache files again")
+    
     for index, row in df_cache.iterrows():
         try:
             file = SCContentFolder + row["CACHE_KEY"]
@@ -614,9 +794,18 @@ def mergeCacheChats(cache_df, chats_df, persistent_df, cache_arroyo_df):
                     #print(type(row_arroyo['message_content']))
                     chats_df.loc[index_chat, 'message_content'] = row_arroyo['message_content']
                     chats_df.loc[index_chat, 'content_type'] = 'local_message_reference'
-                # print("YAY")
                 else:
                     continue
+    
+    #Ändrar external_key i message_content till cache_key för att kunna ersätta med fil
+    test = cache_df.to_dict(orient='list')
+    for index, row in chats_df.iterrows():
+        dict_index = 0
+        for i in test['EXTERNAL_KEY']:
+            if row["message_content"] == i:
+                chats_df.loc[index, 'message_content'] = test['CACHE_KEY'][dict_index]
+                chats_df.loc[index, 'content_type'] = 'Unknown .1020'
+            dict_index += 1
 
     cache_df_v2 = pd.DataFrame(columns=['CACHE_KEY', 'TYPE', 'client_conversation_id', 'server_message_id'])
     # print(cache_df_v2)
@@ -629,7 +818,7 @@ def mergeCacheChats(cache_df, chats_df, persistent_df, cache_arroyo_df):
                             'server_message_id': data[2], 'SERVER_MESSAGE_ID_PART': data[3]}
 
                 cache_df_v2 = cache_df_v2.append(tmp_dict, ignore_index=True)
-            except IndexError:
+            except IndexError as Error:
                 pass
         except Exception as Error:
             print(Error)
@@ -644,45 +833,54 @@ def mergeCacheChats(cache_df, chats_df, persistent_df, cache_arroyo_df):
 
     for index, row in cache_df_v2.iterrows():
         if row['CACHE_KEY'] not in merged_cache_keys:
-            # print(row['CACHE_KEY'])
             tmp_dict = {'client_conversation_id': row["client_conversation_id"], 'message_content': row["CACHE_KEY"],
                         'Creation Timestamp': 'Unknown',
                         'Read Timestamp': 'Unknown', 'content_type': row["TYPE"], 'sender_id': 'Unknown',
                         'server_message_id': str(row["server_message_id"]) + "." + str(row['SERVER_MESSAGE_ID_PART'])}
             merge_df = merge_df.append(tmp_dict, ignore_index=True)
 
-    for index, row in merge_df.iterrows():
-        if type((row['CACHE_KEY'])) == str:
-            merge_df.loc[index, 'message_content'] = row['CACHE_KEY']
-            
-        if str(row['SERVER_MESSAGE_ID_PART']) == "nan":
-            merge_df.loc[index, 'server_message_id'] = str(row["server_message_id"])
-        else:
-            merge_df.loc[index, 'server_message_id'] = str(row["server_message_id"]) + "." + str(
-                row['SERVER_MESSAGE_ID_PART'])
-            
-        if row['content_type'] == 1:
-            merge_df.loc[index, 'content_type'] = "Text"
-        else:
-            if row['content_type'] == 'local_message_reference':
-                continue
-            elif type(row["TYPE"]) != str:
-                merge_df = merge_df.drop(index=index)
-            else:
-                if row["TYPE"] == "cm-chat-media-video-1":
-                    merge_df.loc[index, 'content_type'] = "Media saved in chat"
-                elif row["TYPE"] == "1":
-                    merge_df.loc[index, 'content_type'] = "Temporarily stored media"
-                elif row["TYPE"] == "thumbnail~1":
-                    merge_df.loc[index, 'content_type'] = "Thumbnail"
-                else:
-                    merge_df.loc[index, 'content_type'] = row["TYPE"]
+    
 
+    for index, row in merge_df.iterrows():
+        try:
+            if type((row['CACHE_KEY'])) == str:
+                merge_df.loc[index, 'message_content'] = row['CACHE_KEY']
+            try:
+                if str(row['SERVER_MESSAGE_ID_PART']) == "nan":
+                    merge_df.loc[index, 'server_message_id'] = str(row["server_message_id"])
+                else:
+                    merge_df.loc[index, 'server_message_id'] = str(row["server_message_id"]) + "." + str(
+                        row['SERVER_MESSAGE_ID_PART'])
+            except:
+                pass
+                
+            if row['content_type'] == 1:
+                merge_df.loc[index, 'content_type'] = "Text"
+            else:
+                if row['content_type'] == 'local_message_reference' or row['content_type'] == 'Unknown .1020':
+                    continue
+                elif type(row["TYPE"]) != str:
+                    merge_df = merge_df.drop(index=index)
+                else:
+                    if row["TYPE"] == "cm-chat-media-video-1":
+                        merge_df.loc[index, 'content_type'] = "Media saved in chat"
+                    elif row["TYPE"] == "1":
+                        merge_df.loc[index, 'content_type'] = "Temporarily stored media"
+                    elif row["TYPE"] == "thumbnail~1":
+                        merge_df.loc[index, 'content_type'] = "Thumbnail"
+                    else:
+                        merge_df.loc[index, 'content_type'] = row["TYPE"]
+        except Exception as error:
+            print(error)
+            pass
     merge_df.server_message_id = pd.to_numeric(merge_df.server_message_id)
     final_df = merge_df.rename(
         columns={'client_conversation_id': 'Client Conversation ID', 'server_message_id': 'Server Message ID',
                  'message_content': 'Message Content', 'content_type': 'Content Type', 'sender_id': 'Sender ID'})
-    final_df = final_df.drop(columns=['CACHE_KEY', 'SERVER_MESSAGE_ID_PART', 'TYPE'])
+    try:
+        final_df = final_df.drop(columns=['CACHE_KEY', 'SERVER_MESSAGE_ID_PART', 'TYPE'])
+    except:
+        final_df = final_df.drop(columns=['CACHE_KEY', 'TYPE'])
     print("")
     return final_df
 
@@ -714,7 +912,7 @@ def getSCPersistentMedia():
     return persistent_df
 
 
-def main(Application, AppGroup):
+def main(Application, AppGroup, keychain):
     global snapchatFolder
     global groupPlist
     global outputDir
@@ -722,6 +920,9 @@ def main(Application, AppGroup):
     global uuid
     global platform
     global final_df
+    global scdb
+    global galleryEncrypteddb
+    global keychain_file
 
     platform = system()
     print(f"Running on {platform}")
@@ -751,14 +952,31 @@ def main(Application, AppGroup):
     try:
         userPlist = Path(snapchatFolder + "/Documents/user.plist")
         uuid = getUserID(userPlist)
+        uuid_sha256 = hashlib.sha256(uuid.encode("utf-8")).hexdigest()
         arroyo = glob.glob(snapchatFolder + "/Documents/user_scoped/**/*arroyo.db", recursive=True)
         user_scoped_id = arroyo[0].replace("\\", "/").split("/")[-3]
         primaryDoc = glob.glob(snapchatFolder + "/Documents/user_scoped/**/*primary.docobjects", recursive=True)
         cacheController = glob.glob(snapchatFolder + "/Documents/global_scoped/cachecontroller/*cache_controller.db",
                                     recursive=True)
         groupPlist = glob.glob(base_folder_share + "/**/group.snapchat.picaboo.plist", recursive=True)[0]
+        app_group_plist_storage = glob.glob(base_folder_share + "/**/app_group_plist_storage", recursive=True)
         outputDir = "./Snapchat_iOS_report_" + datetime.datetime.today().strftime('%Y%m%d_%H%M%S')
         os.makedirs(outputDir + "//cacheFiles", exist_ok=True)
+        try:
+            galleryEncrypteddb = glob.glob(snapchatFolder + f"/Documents/**/{uuid_sha256}/gallery.encrypteddb", recursive = True)[0]
+        except:
+            try:
+                galleryEncrypteddb = glob.glob(snapchatFolder + f"/Documents/**/{user_scoped_id}/gallery.encrypteddb", recursive = True)[0]
+            except:
+                galleryEncrypteddb = ""
+        try:
+            scdb = glob.glob(snapchatFolder + f"/Documents/**/{uuid_sha256}/scdb-27.sqlite3", recursive = True)[0]
+        except:
+            try:
+                scdb = glob.glob(snapchatFolder + f"/Documents/**/{user_scoped_id}/scdb-27.sqlite3", recursive = True)[0]
+            except:
+                scdb = ""
+        keychain_file = keychain
         if uuid != "":
             SCContentFolder = snapchatFolder + "/Documents/com.snap.file_manager_3_SCContent_" + uuid + "/"
         else:
@@ -788,11 +1006,22 @@ def main(Application, AppGroup):
         try:
             friends_df, group_df = getFriendsPlist(groupPlist)
         except Exception as Error:
-            friends_df, group_df, df_snapchatter = getFriendsPrimary_DisplayMetadata(Path(primaryDoc[0]), Path(arroyo[0]))
-    else:
-        friends_df, group_df, df_snapchatter = getFriendsPrimary(Path(primaryDoc[0]), Path(arroyo[0]))
+            try:
+                friends_df, group_df = getFriendsAppGroupPlistStorage(app_group_plist_storage, arroyo[0])
+            except KeyError:
+                print(f"Could not find friends in {app_group_plist_storage}")
+                try:
+                    friends_df, group_df, df_snapchatter = getFriendsPrimary_DisplayMetadata(Path(primaryDoc[0]), Path(arroyo[0]))
+                except:
+                    print("Could not get friends from DisplayMetadata, using last resort")
+                    try:
+                        friends_df, group_df, df_snapchatter = getFriendsPrimary(Path(primaryDoc[0]), Path(arroyo[0]))
+                    except:
+                        print("Could not find friends info anywhere! This is unexpected, please contact the author")
+                        friends_df, group_df = pd.DataFrame({}), pd.DataFrame({})
+    
     if os.path.exists("test.plist"):
-        os.remove("test.plist")
+       os.remove("test.plist")
     chats_df = getChats(arroyo[0])
     chats_df = fixSenders(chats_df, friends_df, df_snapchatter)
     cache_df = getCache(cacheController[0])
