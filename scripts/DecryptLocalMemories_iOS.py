@@ -305,7 +305,7 @@ def recoverWithSqlite():
         recoveredConn = sqlite3.connect(recoveredFile)
     except DatabaseError as e:
         print(e)
-    with open("recovery.sql", "r") as recoverySql:
+    with open("recovery.sql", "r", encoding='utf-8') as recoverySql:
         recoveredConn.executescript(recoverySql.read())
         recoveredConn.close()
     os.remove("recovery.sql")
@@ -487,10 +487,10 @@ def generateReport(df_merge):
         """
     html = html + template % df_report.to_html(classes=["table table-bordered table-striped table-hover table-xl "
                                                         "table-responsive text-wrap"], escape=False, index=False)
-    html = html.replace('<a href="./DecryptedMemories/FullSnap/"><img src="./DecryptedMemories/FullSnap/" width="150"><br>Download </a>', "Could not be found or decrypted, "
+    html = html.replace('<a href="./DecryptedMemories/FullSnap/"><img src="./DecryptedMemories/FullSnap/" width="150"><br>Open </a>', "Could not be found or decrypted, "
                                                                              "usually because the Memory/MEO was " 
                                                                              "not locally stored")
-    html = html.replace('<video width="320" height="240" controls> <source src="./DecryptedMemories/" type="video/mp4"> Your browser does not support the video tag. </video> <a href="./DecryptedMemories/" download><br>Download </a>', "Could not be found or decrypted, "
+    html = html.replace('<video width="320" height="240" controls> <source src="./DecryptedMemories/" type="video/mp4"> Your browser does not support the video tag. </video> <a href="./DecryptedMemories/" open><br>Open </a>', "Could not be found or decrypted, "
                                                                              "usually because the Memory/MEO was " 
                                                                              "not locally stored")
     with open(f'{outputDir}/Report.html', 'w') as f:
@@ -500,13 +500,13 @@ def generateReport(df_merge):
 
 def makeImg(src):
     basename = ntpath.basename(src)
-    return f'<a href="{src}"><img src="{src}" width="150"><br>Download {basename}</a>'
+    return f'<a href="{src}"><img src="{src}" width="150"><br>Open {basename}</a>'
     #return f'<img src="{src}" width="200"/>'
 
 
 def makeVideo(src):
     basename = ntpath.basename(src)
-    return f'<video width="320" height="240" controls> <source src="{src}" type="video/mp4"> Your browser does not support the video tag. </video> <a href="{src}" download><br>Download {basename}</a>'
+    return f'<video width="320" height="240" controls> <source src="{src}" type="video/mp4"> Your browser does not support the video tag. </video> <a href="{src}" open><br>Open {basename}</a>'
     #return f'<video width="200" controls><source src="{src}" type="video/mp4">Your browser does not ' \
     #       f'support the video tag.</video>'
 
@@ -592,7 +592,7 @@ def main(enc_db, scdb, keychain, cache_df, SCContentFolder):
     
     print("Decrypting locally stored Memories and MEO")
 
-    outputDir = "./Snapchat_Memories_report_" + datetime.today().strftime('%Y%m%d_%H%M%S')
+    outputDir = "./Snapchat_LocalMemories_report_" + datetime.today().strftime('%Y%m%d_%H%M%S')
     os.makedirs(outputDir + "//DecryptedMemories", exist_ok=True)
 
     #enc_db = sys.argv[1]

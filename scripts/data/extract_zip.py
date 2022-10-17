@@ -108,7 +108,10 @@ Rename the folder and run again to extract Snapchat data from zip
                 pass
                 #print(err)
             print("Snapchat files extracted to Application and AppGroup folders")
-            return os.path.realpath("Application").replace("\\", "/"), os.path.realpath("AppGroup").replace("\\", "/")
+            if not os.path.exists("AppGroup"):
+                return os.path.realpath("Application").replace("\\", "/"), ""
+            else:
+                return os.path.realpath("Application").replace("\\", "/"), os.path.realpath("AppGroup").replace("\\", "/")
             
 
 if __name__ == "__main__":
