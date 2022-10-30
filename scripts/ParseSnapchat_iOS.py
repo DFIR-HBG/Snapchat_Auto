@@ -170,6 +170,9 @@ def getUserID(userPlist):
             with open(userPlist, "rb") as f:
                 data = f.read()
                 uuid = re.search('[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}', str(data))
+                if uuid == None:
+                    print("No user found in User.plist! User might be logged out from Snapchat. Data will likely be incomplete.")
+                    return ""
             return (uuid.group(0))
         else:
             print("User.plist not found! User might be logged out from Snapchat. Data will likely be incomplete.")
@@ -487,7 +490,7 @@ def getFriendsPlist(group_plist):
 
 def getFriendsPrimary_DisplayMetadata(primary, arroyo):
     print()
-    print(f"Could not get friends from default location, trying from third location {ntpath.basename(primary)} and {ntpath.basename(arroyo)} (EXPERIMENTAL)")
+    print(f"Could not get friends from default location, trying from third location {ntpath.basename(primary)}(DisplayMetadata) and {ntpath.basename(arroyo)} (EXPERIMENTAL)")
     #print("Gathering friends from " + ntpath.basename(primary))
     print("WARNING - MIGHT contain users that are not friends")
     conn = sqlite3.connect(primary)
@@ -585,7 +588,7 @@ def getFriendsPrimary_DisplayMetadata(primary, arroyo):
     
 def getFriendsPrimary(primary, arroyo):
     print()
-    print("Gathering friends from " + ntpath.basename(primary))
+    print(f"Gathering friends from {ntpath.basename(primary)}(Snapchatters)")
     print("WARNING - WILL contain users that are not friends")
     try:
         conn = sqlite3.connect(primary)
@@ -1032,6 +1035,9 @@ def main(Application, AppGroup, keychain):
     #counter = 0
     base_folder_data = ""
     base_folder_share = ""
+    groupPlist = ""
+    app_group_plist_storage = ""
+    
     for root, dirs, files in os.walk(Application):
         if uuid_pattern.match(dirs[0]):
             base_folder_data = dirs[0]
@@ -1054,6 +1060,10 @@ def main(Application, AppGroup, keychain):
         uuid = getUserID(userPlist)
         uuid_sha256 = hashlib.sha256(uuid.encode("utf-8")).hexdigest()
         arroyo = glob.glob(snapchatFolder + "/Documents/user_scoped/**/*arroyo.db", recursive=True)
+        if len(arroyo) == 0:
+            print("Could not find Chat database arroyo.db, this script does currently not support extractions without this database. Exiting")
+            os.system("pause")
+            sys.exit()
         user_scoped_id = arroyo[0].replace("\\", "/").split("/")[-3]
         primaryDoc = glob.glob(snapchatFolder + "/Documents/user_scoped/**/*primary.docobjects", recursive=True)
         cacheController = glob.glob(snapchatFolder + "/Documents/global_scoped/cachecontroller/*cache_controller.db",
@@ -1097,7 +1107,8 @@ def main(Application, AppGroup, keychain):
             else:
                 print("Could not find correct SCContent Folder - Collecting cached files might take a while")
         
-
+    except SystemExit:
+        sys.exit()
     except Exception as Error:
         print(Error)
 
@@ -1116,7 +1127,7 @@ def main(Application, AppGroup, keychain):
         print("Could not find friends in group.snapchat.picaboo")
         try:
             friends_df, group_df = getFriendsAppGroupPlistStorage(app_group_plist_storage, arroyo[0])
-        except KeyError:
+        except:
             print(f"Could not find friends in app_group_plist_storage")
             try:
                 friends_df, group_df, df_snapchatter = getFriendsPrimary_DisplayMetadata(Path(primaryDoc[0]), Path(arroyo[0]))
