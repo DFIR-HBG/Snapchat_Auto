@@ -107,10 +107,15 @@ Rename the folder and run again to extract Snapchat data from zip
             except Exception as err:
                 pass
                 #print(err)
-            print("Snapchat files extracted to Application and AppGroup folders")
+            if not os.path.exists("Application"):
+                print("Can't find any Snapchat-files in extraction. Snapchat is probably not installed")
+                os.system("pause")
+                sys.exit()
             if not os.path.exists("AppGroup"):
+                print("Snapchat files extracted to Application folder - Could not find files located in AppGroup")
                 return os.path.realpath("Application").replace("\\", "/"), ""
             else:
+                print("Snapchat files extracted to Application and AppGroup folders")
                 return os.path.realpath("Application").replace("\\", "/"), os.path.realpath("AppGroup").replace("\\", "/")
             
 
