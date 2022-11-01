@@ -1,0 +1,9 @@
+# iOS
+Snapchat_iOS_report
+  Contains chats (text, saved and cached media), contacts and groups
+
+Snapchat_LocalMemories_report
+  Contains info on all Memories and My Eyes Only, contains decrypted media if it is cached
+  
+SnapFixedVideos
+  Contains media files that have been merged from split files
