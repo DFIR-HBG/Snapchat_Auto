@@ -205,7 +205,7 @@ def getUserIDFromArroyo(arroyo):
     print("Getting User ID from arroyo")
     conn = sqlite3.connect(arroyo)
     messagesQuery = """select
-    value
+    value as value
     from required_values where key = "USERID"
     """
     df = pd.read_sql_query(messagesQuery, conn)
@@ -493,97 +493,103 @@ def getFriendsPrimary_DisplayMetadata(primary, arroyo):
     print(f"Could not get friends from default location, trying from third location {ntpath.basename(primary)}(DisplayMetadata) and {ntpath.basename(arroyo)} (EXPERIMENTAL)")
     #print("Gathering friends from " + ntpath.basename(primary))
     print("WARNING - MIGHT contain users that are not friends")
-    conn = sqlite3.connect(primary)
-    messagesQuery = """select
-    userId as 'User ID',
-    p as 'Display Name',
-    from snapchatters__displaymetadata
-    """
-    df_friends = pd.read_sql_query(messagesQuery, conn)
+    try:
+        conn = sqlite3.connect(primary)
+        messagesQuery = """select
+        userId as 'User ID',
+        p as 'Display Name'
+        from snapchatters__displaymetadata
+        """
+        df_friends = pd.read_sql_query(messagesQuery, conn)
 
-    for index, row in df_friends.iterrows():
-        try:
-            data = row["Display Name"]
-            counter = 0
-            for i in data[56:]:
-                if i == 0:
-                    break
-                else:
-                    counter += 1
-            slut = 56 + counter
-            namn = data[56:slut]
-            namn = namn.decode()
-            namn = namn.encode('cp1252', 'xmlcharrefreplace')  # Display Emojis
-            namn = namn.decode('cp1252')
-            df_friends.loc[index, "Display Name"] = namn
-        except Exception as Error:
-            df_friends.loc[index, "Display Name"] = ""
-            print(f"Could not find Display name for user {row['User ID']}, {Error}")
-
-    conn = sqlite3.connect(arroyo)
-    messagesQuery = """select
-    user_id as 'User ID',
-    client_conversation_id as 'Conversation ID',
-    CASE 
-        WHEN conversation_type is 0 THEN 'Private'
-        WHEN conversation_type is 1 THEN 'Group'
-        ELSE conversation_type
-        END "Conversation Type"
-    from user_conversation
-    """
-
-    df_conversations = pd.read_sql_query(messagesQuery, conn)
-
-    private_conv = df_conversations[df_conversations["Conversation Type"] == "Private"].drop(columns=["Conversation Type"])
-    array = []
-    for index, row in private_conv.iterrows():
-        lista = [row["User ID"], row["Conversation ID"]]
-        array.append(lista)
-
-    for index, row in df_friends.iterrows():
-        user = row["User ID"]
-        for item in array:
-            if user == item[0]:
-                df_friends.loc[index, "Conversation ID"] = item[1]
-
-    query = """select 
-    client_conversation_id as "Conversation ID",
-    group_concat(user_id) as "User ID"
-    from user_conversation where conversation_type is 1
-    group by client_conversation_id"""
-    conn = sqlite3.connect(arroyo)
-    df = pd.read_sql_query(query, conn)
-    grupper = {"Conversation ID": [], "Participants": []}
-
-    for index, row in df.iterrows():
-        conv_id = []
-        conv_id.append(row["Conversation ID"])
-        users = []
-        for i in row["User ID"].split(","):
+        for index, row in df_friends.iterrows():
             try:
-                username = df_friends["Display Name"].loc[df_friends['User ID']==i]
-                username = (username.item())
-                users.append(username)
-            except:
-                users.append(i)
-                pass
-        grupper["Conversation ID"].append(conv_id)
-        grupper["Participants"].append(users)
+                data = row["Display Name"]
+                counter = 0
+                for i in data[56:]:
+                    if i == 0:
+                        break
+                    else:
+                        counter += 1
+                slut = 56 + counter
+                namn = data[56:slut]
+                namn = namn.decode()
+                namn = namn.encode('cp1252', 'xmlcharrefreplace')  # Display Emojis
+                namn = namn.decode('cp1252')
+                df_friends.loc[index, "Display Name"] = namn
+            except Exception as Error:
+                df_friends.loc[index, "Display Name"] = ""
+                print(f"Could not find Display name for user {row['User ID']}, {Error}")
 
-    df_group = pd.DataFrame(grupper)
-    
-    conn = sqlite3.connect(primary)
-    messagesQuery = """select
-    snapchatter.userId as 'User ID',
-    snapchatter.rowid,
-    index_snapchatterusername.username as 'Username'
-    from snapchatter
-    inner join index_snapchatterusername ON snapchatter.rowid=index_snapchatterusername.rowid
-    """
-    
-    df_snapchatter = pd.read_sql_query(messagesQuery, conn)
-    
-    return df_friends, df_group, df_snapchatter
+        conn = sqlite3.connect(arroyo)
+        messagesQuery = """select
+        user_id as 'User ID',
+        client_conversation_id as 'Conversation ID',
+        CASE 
+            WHEN conversation_type is 0 THEN 'Private'
+            WHEN conversation_type is 1 THEN 'Group'
+            ELSE conversation_type
+            END "Conversation Type"
+        from user_conversation
+        """
+
+        df_conversations = pd.read_sql_query(messagesQuery, conn)
+
+        private_conv = df_conversations[df_conversations["Conversation Type"] == "Private"].drop(columns=["Conversation Type"])
+        array = []
+        for index, row in private_conv.iterrows():
+            lista = [row["User ID"], row["Conversation ID"]]
+            array.append(lista)
+
+        for index, row in df_friends.iterrows():
+            user = row["User ID"]
+            for item in array:
+                if user == item[0]:
+                    df_friends.loc[index, "Conversation ID"] = item[1]
+
+        query = """select 
+        client_conversation_id as "Conversation ID",
+        group_concat(user_id) as "User ID"
+        from user_conversation where conversation_type is 1
+        group by client_conversation_id"""
+        conn = sqlite3.connect(arroyo)
+        df = pd.read_sql_query(query, conn)
+        grupper = {"Conversation ID": [], "Participants": []}
+
+        for index, row in df.iterrows():
+            conv_id = []
+            conv_id.append(row["Conversation ID"])
+            users = []
+            for i in row["User ID"].split(","):
+                try:
+                    username = df_friends["Display Name"].loc[df_friends['User ID']==i]
+                    username = (username.item())
+                    users.append(username)
+                except:
+                    users.append(i)
+                    pass
+            grupper["Conversation ID"].append(conv_id)
+            grupper["Participants"].append(users)
+
+        df_group = pd.DataFrame(grupper)
+        
+        conn = sqlite3.connect(primary)
+        messagesQuery = """select
+        snapchatter.userId as 'User ID',
+        snapchatter.rowid,
+        index_snapchatterusername.username as 'Username'
+        from snapchatter
+        inner join index_snapchatterusername ON snapchatter.rowid=index_snapchatterusername.rowid
+        """
+        
+        df_snapchatter = pd.read_sql_query(messagesQuery, conn)
+
+        
+        return df_friends, df_group, df_snapchatter
+    except Exception as Error:
+        print(Error)
+        os.system("pause")
+        raise Exception
     
     
 def getFriendsPrimary(primary, arroyo):
@@ -669,13 +675,20 @@ def fixSenders(df_messages, df_friends, df_snapchatter):
     try:
         array = []
         array2 = []
-        for index, row in df_friends.iterrows():
-            lista = [row["User ID"], row["Username"]]
-            array.append(lista)
-        for index, row in df_snapchatter.iterrows():
-            lista = [row["User ID"], row["Username"]]
-            array2.append(lista)
-
+        try:
+            for index, row in df_friends.iterrows():
+                lista = [row["User ID"], row["Username"]]
+                array.append(lista)
+        except:
+            for index, row in df_friends.iterrows():
+                lista = [row["User ID"], row["Display Name"]]
+                array.append(lista)
+        try:
+            for index, row in df_snapchatter.iterrows():
+                lista = [row["User ID"], row["Username"]]
+                array2.append(lista)
+        except:
+            pass
         for index, row in df_messages.iterrows():
             sender = row["sender_id"]
             found = False
@@ -701,54 +714,61 @@ def getCacheArroyo(arroyo, cache_df):
     print("Getting cache files from " + ntpath.basename(arroyo))
     conn = sqlite3.connect(arroyo)
     messagesQuery = """select
-            client_conversation_id,
-            server_message_id,
-            local_message_references,
-            content_type
-            from conversation_message where local_message_references is not NULL
+            client_conversation_id as client_conversation_id,
+            server_message_id as server_message_id,
+            local_message_references as local_message_references,
+            content_type as content_type,
+            message_content as message_content
+            from conversation_message where local_message_references is not NULL or content_type is '5'
+            --from conversation_message
             order by client_conversation_id, server_message_id
             """
 
     df_arroyo = pd.read_sql_query(messagesQuery, conn)
     # uuid_pattern = re.compile("[A-F0-9-]{36}")
-    df_arroyo['message_content'] = np.nan
+    #df_arroyo['message_content'] = np.nan
     # print(df_arroyo['local_message_references'])
     # os.system("pause")
 
     for index, row in df_arroyo.iterrows():
-        data = row['local_message_references']
+        
+        if row["local_message_references"] != None:
+            data = row['local_message_references']
 
-        with open("temp.plist", 'wb') as temp:
-            temp.write(data[8:])
-        try:
-            with open('temp.plist', 'rb') as data:
-                plist = ccl_bplist.load(data)
-                data1 = ccl_bplist.deserialise_NsKeyedArchiver(plist)
-            data = re.search(".*[A-F0-9-]{36}", data1['MEDIA_ID'])
-            # print(data)
-            # print(row['client_conversation_id'])
-            # print(row['server_message_id'])
+            with open("temp.plist", 'wb') as temp:
+                temp.write(data[8:])
             try:
-                index1 = cache_df.index[cache_df['EXTERNAL_KEY'] == data.group()].values[0]
-                index1 = int(index1)
-                #print(index1)
-                cache_key = cache_df.iloc[index1]['CACHE_KEY']
-                # print(cache_key)
-                df_arroyo.loc[index, 'message_content'] = cache_key
-            except Exception as Error:
-                # print(Error)
-                pass
+                with open('temp.plist', 'rb') as data:
+                    plist = ccl_bplist.load(data)
+                    data1 = ccl_bplist.deserialise_NsKeyedArchiver(plist)
+                data = re.search(".*[A-F0-9-]{36}", data1['MEDIA_ID'])
 
-            # print(data.group())
-        except Exception as error:
-            print(error, index)
+                try:
+                    index1 = cache_df.index[cache_df['EXTERNAL_KEY'] == data.group()].values[0]
+                    index1 = int(index1)
+                    cache_key = cache_df.iloc[index1]['CACHE_KEY']
+                    df_arroyo.loc[index, 'message_content'] = cache_key
+                except Exception as Error:
+                    pass
+
+            except Exception as error:
+                print(error, index)
+                
+        elif row["content_type"] == 5:
+            try:
+                data = row["message_content"]
+                message,typedef = blackboxprotobuf.decode_message(data)
+                message_found = (message['4']['4']['4']['1']['2'])
+                message_found = message_found.decode()
+                for cache_index, cache_row in cache_df.iterrows():
+                    if message_found in cache_row["EXTERNAL_KEY"]:
+                        df_arroyo.loc[index, 'message_content'] = cache_row["CACHE_KEY"]
+            except:
+                pass
     
     if os.path.exists("temp.plist"):
         os.remove("temp.plist")
-    # os.system("pause")
-    #print(df_arroyo)
-    #os.system("pause")
-
+        
     return df_arroyo
 
 
@@ -764,11 +784,11 @@ def getCache(cachecontroller):
     if uuid != "":
         messagesQuery = f"""select
         *
-        from CACHE_FILE_CLAIM where USER_ID is '{uuid}' and MEDIA_CONTEXT_TYPE in (3,19) and DELETED_TIMESTAMP_MILLIS is 0"""
+        from CACHE_FILE_CLAIM where USER_ID is '{uuid}' and MEDIA_CONTEXT_TYPE in (2,3,19) and DELETED_TIMESTAMP_MILLIS is 0"""
     else:
         messagesQuery = f"""select
         *
-        from CACHE_FILE_CLAIM where MEDIA_CONTEXT_TYPE in (3,19) and DELETED_TIMESTAMP_MILLIS is 0"""
+        from CACHE_FILE_CLAIM where MEDIA_CONTEXT_TYPE in (2,3,19) and DELETED_TIMESTAMP_MILLIS is 0"""
     df_cache = pd.read_sql_query(messagesQuery, conn)   
     if foundFiles == []:
         foundFiles = glob.glob(SCContentFolder + '*')
@@ -810,17 +830,17 @@ def getChats(database):
     conn = sqlite3.connect(database)
 
     messagesQuery = """select
-    client_conversation_id,
-    server_message_id,
-    message_content,
+    client_conversation_id as client_conversation_id,
+    server_message_id as server_message_id,
+    message_content as message_content,
     datetime(creation_timestamp/1000, 'unixepoch') as 'Creation Timestamp',
     CASE 
         datetime(read_timestamp/1000, 'unixepoch') when '1970-01-01 00:00:00' then "" 
         else datetime(read_timestamp/1000, 'unixepoch')
         end as 'Read Timestamp',
-    content_type,
-    sender_id
-    from conversation_message
+    content_type as content_type,
+    sender_id as sender_id
+    from conversation_message where client_conversation_id IS NOT NULL
     order by client_conversation_id, creation_timestamp
     """
 
@@ -860,9 +880,7 @@ def mergeCacheChats(cache_df, chats_df, persistent_df, cache_arroyo_df):
         for index_chat, row_chat in chats_df.iterrows():
             if row_chat['client_conversation_id'] == row_arroyo['client_conversation_id'] and \
                     row_chat['server_message_id'] == row_arroyo['server_message_id']:
-                if not isinstance(row_arroyo['message_content'], float):
-                    #print(row_arroyo['message_content'])
-                    #print(type(row_arroyo['message_content']))
+                if not isinstance(row_arroyo['message_content'], float) and not isinstance(row_arroyo['message_content'], bytes):
                     chats_df.loc[index_chat, 'message_content'] = row_arroyo['message_content']
                     chats_df.loc[index_chat, 'content_type'] = 'local_message_reference'
                 else:
@@ -911,7 +929,7 @@ def mergeCacheChats(cache_df, chats_df, persistent_df, cache_arroyo_df):
             merge_df = merge_df.append(tmp_dict, ignore_index=True)
 
     
-
+    sending_messages = []
     for index, row in merge_df.iterrows():
         try:
             if type((row['CACHE_KEY'])) == str:
@@ -922,9 +940,12 @@ def mergeCacheChats(cache_df, chats_df, persistent_df, cache_arroyo_df):
                 else:
                     merge_df.loc[index, 'server_message_id'] = str(row["server_message_id"]) + "." + str(
                         row['SERVER_MESSAGE_ID_PART'])
+                if row["server_message_id"] == "nan":
+                    sending_messages.append(index)
+                    merge_df.loc[index, 'server_message_id'] = "-1"
             except:
                 pass
-                
+            
             if row['content_type'] == 1:
                 merge_df.loc[index, 'content_type'] = "Text"
             else:
@@ -944,7 +965,11 @@ def mergeCacheChats(cache_df, chats_df, persistent_df, cache_arroyo_df):
         except Exception as error:
             print(error)
             pass
+
     merge_df.server_message_id = pd.to_numeric(merge_df.server_message_id)
+    for index in sending_messages:
+        merge_df.loc[index, 'server_message_id'] = "None"
+        merge_df.loc[index, 'content_type'] = "Sending Message"
     final_df = merge_df.rename(
         columns={'client_conversation_id': 'Client Conversation ID', 'server_message_id': 'Server Message ID',
                  'message_content': 'Message Content', 'content_type': 'Content Type', 'sender_id': 'Sender ID'})
@@ -1158,6 +1183,12 @@ def main(Application, AppGroup, keychain):
         columns={'Creation Timestamp': 'Creation Timestamp UTC+0', 'Read Timestamp': 'Read Timestamp UTC+0'})
     final_df = final_df[["Client Conversation ID", "Sender ID", "Message Content", "Content Type", 
                             "Creation Timestamp UTC+0", "Read Timestamp UTC+0", "Server Message ID"]]
+    
+    print("Cleaning up cache files not linked to messages")
+    messages = final_df["Message Content"].tolist()
+    for file in os.listdir(outputDir + '/cacheFiles/'):
+        if file not in messages:
+            os.remove(f"{outputDir}/cacheFiles/{file}")
 
     html = getHtml(final_df, friends_df, group_df)   
     text_file = open(outputDir + "/Snapchat_report.html", "w", encoding="cp1252")

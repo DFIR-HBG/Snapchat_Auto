@@ -19,6 +19,17 @@ from PIL import Image
 import shutil
 import re
 import ntpath
+import numpy as np
+os.environ["OPENCV_LOG_LEVEL"] = "OFF"
+os.environ["OPENCV_FFMPEG_DEBUG"] = "0"
+os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
+os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "0"
+os.environ["OPENCV_VIDEOCAPTURE_DEBUG"] = "0"
+os.environ["OPENCV_OPENCL_RAISE_ERROR"] = "0"
+import cv2
+#from cv2 import VideoCapture, CAP_PROP_FRAME_COUNT
+
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "loglevel;0"
 
 header_size = 0x10
 page_size = 0x400
@@ -122,43 +133,6 @@ def getFullSCDBInfo(db):
     return df
 
 
-# def getMemoriesFromURL(df):
-    # os.makedirs("EncryptedMemories", exist_ok=True)
-    # for index, row in df.iterrows():
-        # if row["ENCRYPTED"] == 0:
-            # if row["ZMEDIADOWNLOADURL"] is not None:
-                # print(f"Downloading Memory {row['ID']}")
-            # else:
-                # print(f"No Download link for Memory {row['ID']}")
-                # df = df.drop(index)
-                # continue
-        # else:
-            # if row["ZMEDIADOWNLOADURL"] is not None:
-                # print(f"Downloading MEO {row['ID']}")
-            # else:
-                # print(f"No Download link for MEO {row['ID']}")
-                # df = df.drop(index)
-                # continue
-
-        # r = requests.get(row["ZMEDIADOWNLOADURL"], allow_redirects=True)
-        # if r.status_code == 200:
-            # with open(f"./EncryptedMemories/{row['ID']}", 'wb') as f:
-                # f.write(r.content)
-            # print("------------------------ Done ------------------------")
-        # else:
-            # print(f"Could not download file, Status code: {r.status_code}")
-
-        # if row["ZOVERLAYDOWNLOADURL"] is not None:
-            # print(f"Downloading Overlay for {row['ID']}")
-            # rOverlay = requests.get(row["ZOVERLAYDOWNLOADURL"], allow_redirects=True)
-            # if rOverlay.status_code == 200:
-                # with open(f"./EncryptedMemories/{row['ID']}_overlay", 'wb') as f:
-                    # f.write(rOverlay.content)
-                # print("------------------------ Done ------------------------")
-            # else:
-                # print(f"Could not download file, Status code: {r.status_code}")
-
-
 def fixMEOkeys(persistedKey, df_merge):
     with open("temp.plist", "wb") as f:
         f.write(persistedKey)
@@ -183,9 +157,11 @@ def fixMEOkeys(persistedKey, df_merge):
 
     return df_merge
 
+def silent_error_handler(status, func_name, err_msg, file_name, line, userdata):
+    pass
 
 def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
-    print("Decrypting Memories")
+    print("Preparing for decryption of cached Memories")
     if not isinstance(egocipherKey, bytes):
         try:
             egocipherKey = unhexlify(egocipherKey)
@@ -204,88 +180,198 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
     
     df_merge["filename"] = ""
     df_merge["overlayFilename"] = ""
+    print("Copying merged media files to cache folder")
+    for file in os.listdir("SnapFixedVideos"):
+        source = f"SnapFixedVideos/{file}"
+        destination = f"{SCContentFolder_path}/{file.split('.')[0]}"
+        if os.path.isfile(source) and not os.path.isfile(destination):
+            shutil.copy(source, destination)
+        else:
+            continue
+            #print(f"Could not copy merged file {source}")
+    
+    print("Decrypting cached Memories")
+    uuid_counter = 0
+    temp_dict = {'ID':[], 'CACHE_KEY':[]}
     for cache_index, cache_row in df_cache.iterrows():
-        for filename in os.listdir(SCContentFolder_path):
-            if cache_row["CACHE_KEY"] in filename:
-                file = SCContentFolder_path + filename
-                kind_temp = filetype.guess(file)
-                #print(kind_temp)
-                if kind_temp == None:
-                    #print("None", cache_row["CACHE_KEY"], cache_row["EXTERNAL_KEY"])
-                    UUID = regex.findall(cache_row["EXTERNAL_KEY"])
-                    if UUID != []:
-                        UUID = str(UUID[0])
-                        #print(UUID)
-                        for merge_index, merge_row in df_merge.iterrows():
-                            if str(merge_row["ID"]) == UUID:#and UUID == "B73C2827-C804-4048-95A6-3D0F28E115D7":
-                                #print(cache_row["CACHE_KEY"])
-                                try:
-                                    aes = AES.new(merge_row["KEY"], AES.MODE_CBC, merge_row["IV"])
-                                    filename = cache_row["CACHE_KEY"]
-                                    #file = f"EncryptedMemories/{filename}"
-                                    #print(f"Decrypting {file}")
-                                    with open(file, "rb") as f:
-                                        enc_data = f.read()
-                                    dec_data = aes.decrypt(enc_data)
+        try:
+            UUID = regex.findall(cache_row["EXTERNAL_KEY"])
+            if UUID != []:
+                UUID = str(UUID[0])
+                uuid_counter += 1
+                temp_dict['ID'].append(UUID)
+                temp_dict['CACHE_KEY'].append(cache_row["CACHE_KEY"])
+            else:
+                continue
+        except Exception as error:
+            print(f"Error finding memory ID {cache_row['EXTERNAL_KEY']} {error}")
 
-                                    fileTypeMime = filetype.guess(dec_data)
-                                    if fileTypeMime is not None:
-                                        with open(outputDir + "/DecryptedMemories/" + filename + "." + fileTypeMime.extension, "wb") as f:
-                                            f.write(dec_data)
-                                        with open(file, "wb") as f:
-                                            f.write(dec_data)
-                                        if fileTypeMime.extension != "webp":
-                                            df_merge.loc[merge_index, "filename"] = filename + "." + fileTypeMime.extension
-                                        else:
-                                            df_merge.loc[merge_index, "overlayFilename"] = filename + "." + fileTypeMime.extension
-                                    else:
-                                        try:
-                                            fileTypeMime = filetype.guess(dec_data[8:])
-                                            if fileTypeMime is not None:
-                                                with open(outputDir + "/DecryptedMemories/" + filename + "." + fileTypeMime.extension, "wb") as f:
-                                                    f.write(dec_data[8:])
-                                                with open(file, "wb") as f:
-                                                    f.write(dec_data)
-                                                if fileTypeMime.extension != "webp":
-                                                    df_merge.loc[merge_index, "filename"] = filename + "." + fileTypeMime.extension
-                                                else:
-                                                    df_merge.loc[merge_index, "overlayFilename"] = filename + "." + fileTypeMime.extension
-                                        except:
-                                            print(f"could not find file extension of {file}")
-                                            with open(outputDir + "/DecryptedMemories/" + filename + "." + "nokind", "wb") as f:
-                                                f.write(dec_data)
-                                                df_merge.loc[merge_index, "filename"] = filename + "." + "nokind"
-
-                                    # overlayFilename = filename + "_overlay"
-                                    # overlayFile = f"EncryptedMemories/{overlayFilename}"
-                                    # if os.path.exists(overlayFile):
-                                        # aes = AES.new(row["KEY"], AES.MODE_CBC, row["IV"])
-                                        # print(f"Decrypting overlay: {overlayFile}")
-                                        # with open(overlayFile, "rb") as f:
+    memory_df = pd.DataFrame(data=temp_dict)
+    df_merge = pd.merge(df_merge, memory_df, on=["ID"], how = 'outer')
+    df_merge = df_merge.dropna(axis=0, subset=["ZSNAPID"])
+    #con = sqlite3.connect("test.db")
+    #df_merge.to_sql("df_merge", con)
+    
+    os.environ["OPENCV_LOG_LEVEL"] = "OFF"
+    os.environ["OPENCV_FFMPEG_DEBUG"] = "0"
+    os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
+    os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "0"
+    os.environ["OPENCV_VIDEOCAPTURE_DEBUG"] = "0"
+    os.environ["OPENCV_OPENCL_RAISE_ERROR"] = "0"
+    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "loglevel;panic"
+    for merge_index, merge_row in df_merge.iterrows():
+        decryptedfile = False
+        try:
+            file = f"{SCContentFolder_path}{merge_row['CACHE_KEY']}"
+            filename = merge_row['CACHE_KEY']
+            if filetype.guess(file) == None or filetype.guess(file).extension in ['ps']: #Encrypted file or some random filetype
+                aes = AES.new(merge_row["KEY"], AES.MODE_CBC, merge_row["IV"])
+                with open(file, "rb") as f:
+                    enc_data = f.read()
+                dec_data = aes.decrypt(enc_data)
+                if filetype.guess(dec_data) == None: #Is the original decrypted data not valid?
+                    if filetype.guess(dec_data[8:]) == None: #Is the decrypted data without the first 8 bytes not valid?
+                        print(f"Error decrypting {file}")
+                        continue
+                    else:
+                        dec_data = dec_data[8:]
+                        
+                fileTypeMime = filetype.guess(dec_data)
+                if fileTypeMime != None:
+                    with open(f"{outputDir}/DecryptedMemories/{merge_row['CACHE_KEY']}.{fileTypeMime.extension}", "wb") as f:
+                        f.write(dec_data)
+                    decryptedfile = True
+                else:
+                    print(f"could not find file extension of {file}")
+                    shutil.copy(file, f"{outputDir}/DecryptedMemories/{filename}.{unknownFile}")
+                    df_merge.loc[merge_index, "filename"] = f"{filename}.unknownFile"
+                    continue
+                    
+            else: #Not encrypted file
+                fileTypeMime = filetype.guess(file)
+                if fileTypeMime != None:
+                    shutil.copy(file, f"{outputDir}/DecryptedMemories/{filename}.{fileTypeMime.extension}")
+                else:
+                    print(f"could not find file extension of {file}")
+                    shutil.copy(file, f"{outputDir}/DecryptedMemories/{filename}.{unknownFile}")
+                    df_merge.loc[merge_index, "filename"] = f"{filename}.unknownFile"
+                    continue
+                    
+            if fileTypeMime.extension != "webp" and fileTypeMime.extension != "png":
+                if decryptedfile == True:
+                    df_merge.loc[merge_index, "filename"] = f"{filename}.{fileTypeMime.extension}"
+                else:
+                    if df_merge.loc[(df_merge["ID"] == merge_row['ID']) & (df_merge["filename"] != "")].empty:
+                        df_merge.loc[merge_index, "filename"] = f"{filename}.{fileTypeMime.extension}"
+            else:
+                if decryptedfile == True:
+                    df_merge.loc[merge_index, "overlayFilename"] = f"{filename}.{fileTypeMime.extension}"
+                else:
+                    if df_merge.loc[(df_merge["ID"] == merge_row['ID']) & (df_merge["overlayFilename"] != "")].empty:
+                        df_merge.loc[merge_index, "overlayFilename"] = f"{filename}.{fileTypeMime.extension}"
+            resultfile = f"{outputDir}/DecryptedMemories/{filename}.{fileTypeMime.extension}"
+            
+            if fileTypeMime.extension == "mp4": #Check if video has any frames, removes it if its 0
+                try:
+                    cv2video = cv2.VideoCapture(resultfile)
+                    framecount = cv2video.get(cv2.CAP_PROP_FRAME_COUNT)
+                    if int(framecount) == 0:
+                        df_merge.loc[merge_index, "filename"] = "FrameCountError"
+                        os.remove(resultfile)
+                except Exception as Error:
+                    print(f"Error checking if {filename} is playable, {Error}")
+            
+            # if fileTypeMime is not None:
+                # with open(outputDir + "/DecryptedMemories/" + filename + "." + fileTypeMime.extension, "wb") as f:
+                    # f.write(dec_data)
+                # with open(file, "wb") as f:
+                    # f.write(dec_data)
+                # if fileTypeMime.extension != "webp":
+                    # df_merge.loc[merge_index, "filename"] = filename + "." + fileTypeMime.extension
+                # else:
+                    # df_merge.loc[merge_index, "overlayFilename"] = filename + "." + fileTypeMime.extension
+            # else:
+                # try:
+                    # fileTypeMime = filetype.guess(dec_data[8:])
+                    # if fileTypeMime is not None:
+                        # with open(outputDir + "/DecryptedMemories/" + filename + "." + fileTypeMime.extension, "wb") as f:
+                            # f.write(dec_data[8:])
+                        # with open(file, "wb") as f:
+                            # f.write(dec_data)
+                        # if fileTypeMime.extension != "webp":
+                            # df_merge.loc[merge_index, "filename"] = filename + "." + fileTypeMime.extension
+                        # else:
+                            # df_merge.loc[merge_index, "overlayFilename"] = filename + "." + fileTypeMime.extension
+                # except:
+                    # print(f"could not find file extension of {file}")
+                    # with open(outputDir + "/DecryptedMemories/" + filename + "." + "nokind", "wb") as f:
+                        # f.write(dec_data)
+                        # df_merge.loc[merge_index, "filename"] = filename + "." + "nokind"
+                        
+        except FileNotFoundError as fnfe:
+            continue
+        except Exception as error:
+            print(f"Error decrypting snap ID {merge_row['ID']} {error}")
+        
+        # for filename in os.listdir(SCContentFolder_path):
+            # try:
+                # if cache_row["CACHE_KEY"] in filename:
+                    # file = SCContentFolder_path + filename
+                    # kind_temp = filetype.guess(file)
+                    # if kind_temp == None:
+                        # UUID = regex.findall(cache_row["EXTERNAL_KEY"])
+                        # if UUID != []:
+                            # UUID = str(UUID[0])
+                            # for merge_index, merge_row in df_merge.iterrows():
+                                # if str(merge_row["ID"]) == UUID:
+                                    # try:
+                                        # aes = AES.new(merge_row["KEY"], AES.MODE_CBC, merge_row["IV"])
+                                        # filename = cache_row["CACHE_KEY"]
+                                        # with open(file, "rb") as f:
                                             # enc_data = f.read()
                                         # dec_data = aes.decrypt(enc_data)
 
                                         # fileTypeMime = filetype.guess(dec_data)
                                         # if fileTypeMime is not None:
-                                            # with open(outputDir + "/DecryptedMemories/" + overlayFilename + "." + fileTypeMime.extension,
-                                                      # "wb") as f:
+                                            # with open(outputDir + "/DecryptedMemories/" + filename + "." + fileTypeMime.extension, "wb") as f:
                                                 # f.write(dec_data)
-                                                # df_merge.loc[index, "overlayFilename"] = overlayFilename + "." + fileTypeMime.extension
+                                            # with open(file, "wb") as f:
+                                                # f.write(dec_data)
+                                            # if fileTypeMime.extension != "webp":
+                                                # df_merge.loc[merge_index, "filename"] = filename + "." + fileTypeMime.extension
+                                            # else:
+                                                # df_merge.loc[merge_index, "overlayFilename"] = filename + "." + fileTypeMime.extension
                                         # else:
-                                            # print(f"Could not find file extension of {overlayFile}")
-                                            # with open(outputDir + "/DecryptedMemories/" + overlayFile + "." + "nokind", "wb") as f:
-                                                # f.write(dec_data)
-                                                # df_merge.loc[index, "overlayFilename"] = overlayFilename + "." + "nokind"
-                                except FileNotFoundError as fnfe:
-                                    continue
-                                except Exception as error:
-                                    print(f"Error decryption snap ID {merge_row['ID']} {error}")
-
+                                            # try:
+                                                # fileTypeMime = filetype.guess(dec_data[8:])
+                                                # if fileTypeMime is not None:
+                                                    # with open(outputDir + "/DecryptedMemories/" + filename + "." + fileTypeMime.extension, "wb") as f:
+                                                        # f.write(dec_data[8:])
+                                                    # with open(file, "wb") as f:
+                                                        # f.write(dec_data)
+                                                    # if fileTypeMime.extension != "webp":
+                                                        # df_merge.loc[merge_index, "filename"] = filename + "." + fileTypeMime.extension
+                                                    # else:
+                                                        # df_merge.loc[merge_index, "overlayFilename"] = filename + "." + fileTypeMime.extension
+                                            # except:
+                                                # print(f"could not find file extension of {file}")
+                                                # with open(outputDir + "/DecryptedMemories/" + filename + "." + "nokind", "wb") as f:
+                                                    # f.write(dec_data)
+                                                    # df_merge.loc[merge_index, "filename"] = filename + "." + "nokind"
+                                                    
+                                    # except FileNotFoundError as fnfe:
+                                        # continue
+                                    # except Exception as error:
+                                        # print(f"Error decryption snap ID {merge_row['ID']} {error}")
+            # except Exception as error:
+                # print(f"Error decryption snap ID {merge_row['ID']} {error}")
+    
+    print("Done decrypting Memories")
     return df_merge
 
 
 def timestampsconv(cocoaCore):
-    if pd.isna(cocoaCore):
+    if pd.isna(cocoaCore) or cocoaCore == "":
         return ""
     unix_timestamp = cocoaCore + 978307200
     finaltime = datetime.utcfromtimestamp(unix_timestamp)
@@ -369,22 +455,26 @@ def createFullSnapImages(df_merge):
     filePath = f"{outputDir}/DecryptedMemories/"
     os.makedirs(f"{outputDir}/DecryptedMemories/FullSnap", exist_ok=True)
     for index, row in df_merge.iterrows():
-        filename = row['filename']
-        if filename != "":
-            file = filePath + filename
-            # need to detect videos
-            fileTypeMime = filetype.guess(file).mime
-            if fileTypeMime != "video/mp4" and fileTypeMime != "video/quicktime":
-                background = Image.open(file)
-                if row['overlayFilename'] != "":
-                    foreground = Image.open(filePath + row['overlayFilename'])
-                    background.paste(foreground, (0, 0), foreground)
-                background.save(filePath + 'FullSnap/' + filename)
-            #else:
-                #print("VIDEO FILES NOT SUPPORTED YET")
+        try:
+            filename = row['filename']
+            if filename != "":
+                file = filePath + filename
+                # need to detect videos
+                fileTypeMime = filetype.guess(file).mime
+                if fileTypeMime != "video/mp4" and fileTypeMime != "video/quicktime":
+                    background = Image.open(file)
+                    if row['overlayFilename'] != "":
+                        foreground = Image.open(filePath + row['overlayFilename'])
+                        background.paste(foreground, (0, 0), foreground)
+                    background.save(filePath + 'FullSnap/' + filename)
+        except FileNotFoundError:
+            pass
+        except Exception as error:
+            print(f"Error creating FullSnapImage of snap ID: {row['ID']} | Filename: {row['filename']} | Error: {error}")
 
 
 def generateReport(df_merge):
+    print("Generating report file")
     if getattr(sys, 'frozen', False):
         exe_path = sys._MEIPASS
         try:
@@ -407,27 +497,14 @@ def generateReport(df_merge):
         else:
             memoryType = "Memory"
         id = row['ZSNAPID']
-        format = row['ZSERVLETMEDIAFORMAT']
+        format = int(row['ZMEDIATYPE'])
         columns = ['ID', 'Memory Type', 'Image', 'Overlay', 'Create Time (UTC)', 'Capture Time (UTC)', 'Duration', 'Camera', 'longitude', 'latitude']
         createTime = timestampsconv(row['ZCREATETIMEUTC'])
         captureTime = timestampsconv(row['ZCAPTURETIMEUTC'])
         duration = row['ZDURATION']
         camera = "Front" if row['ZCAMERAFRONTFACING'] == 1 else "Back"
         if row['overlayFilename'] != "":
-            if format[0:5] == "video":
-                rowData = [id,
-                           memoryType,
-                           makeVideo(filePath + row['filename']),
-                           makeImg(filePath + row['overlayFilename']),
-                           createTime,
-                           captureTime,
-                           duration,
-                           camera,
-                           row['longitude'],
-                           row['latitude']
-                           ]
-
-            else:
+            if format == 0:
                 rowData = [id,
                            memoryType,
                            makeImg(filePath + "FullSnap/" + row['filename']),
@@ -439,11 +516,24 @@ def generateReport(df_merge):
                            row['longitude'],
                            row['latitude']
                            ]
-        else:
-            if format[0:5] == "video":
+            else:
                 rowData = [id,
                            memoryType,
                            makeVideo(filePath + row['filename']),
+                           makeImg(filePath + row['overlayFilename']),
+                           createTime,
+                           captureTime,
+                           duration,
+                           camera,
+                           row['longitude'],
+                           row['latitude']
+                           ]
+        else:
+            if format == 0:
+                rowData = [id,
+                           memoryType,
+                           makeImg(filePath + "FullSnap/" +
+                                   row['filename']),
                            "",
                            createTime,
                            captureTime,
@@ -455,8 +545,7 @@ def generateReport(df_merge):
             else:
                 rowData = [id,
                            memoryType,
-                           makeImg(filePath + "FullSnap/" +
-                                   row['filename']),
+                           makeVideo(filePath + row['filename']),
                            "",
                            createTime,
                            captureTime,
@@ -490,6 +579,8 @@ def generateReport(df_merge):
     html = html.replace('<a href="./DecryptedMemories/FullSnap/"><img src="./DecryptedMemories/FullSnap/" width="150"><br>Open </a>', "Could not be found or decrypted, "
                                                                              "usually because the Memory/MEO was " 
                                                                              "not locally stored")
+    html = html.replace('<video width="320" height="240" controls> <source src="./DecryptedMemories/FrameCountError" type="video/mp4"> Your browser does not support the video tag. </video> <a href="./DecryptedMemories/FrameCountError" open><br>Open FrameCountError</a>',
+        "Video is cached on device but not playable")
     html = html.replace('<video width="320" height="240" controls> <source src="./DecryptedMemories/" type="video/mp4"> Your browser does not support the video tag. </video> <a href="./DecryptedMemories/" open><br>Open </a>', "Could not be found or decrypted, "
                                                                              "usually because the Memory/MEO was " 
                                                                              "not locally stored")
@@ -600,7 +691,6 @@ def main(enc_db, scdb, keychain, cache_df, SCContentFolder):
     #keychain = sys.argv[3]
     #cache_df = sys.argv[4]
 
-    #SCContentFolder = r"C:\Users\Forensic\Desktop\Kodning\Snapchat\Snapchat_Auto\v0.8.1\Application\D2771B36-E202-4539-A36A-197BEDD26FCD\Documents\com.snap.file_manager_3_SCContent_dcf1160b-21fe-47ed-b2c0-8b5e57603a34\\"
     SCContentFolder_path = SCContentFolder
     
     decryptedName = "gallery_decrypted.sqlite"
@@ -616,23 +706,27 @@ def main(enc_db, scdb, keychain, cache_df, SCContentFolder):
         print("Could not find keys for memories in keychain, skipping this step")
         shutil.rmtree(outputDir)
         return cache_df
-    decryptGalleryDB(enc_db, egocipher, persisted)
-    # decryptGallery(enc_db, egocipherKey)
-
-    success = recoverDatabase()
-    if not success:
-        print(f"{os.path.basename(enc_db)} is empty or not decrypted, cannot decrypt memories")
-        return cache_df
-
-    df_MemoryKey = getMemoryKey(decryptedName + "_r")
+    if not checkDatabase(enc_db):
+        decryptGalleryDB(enc_db, egocipher, persisted)
+        success = recoverDatabase()
+        if not success:
+            print(f"{os.path.basename(enc_db)} is empty or not decrypted, cannot decrypt memories")
+            return cache_df
+        df_MemoryKey = getMemoryKey(decryptedName + "_r")
+    else:
+        print("Gallery database is already decrypted")
+        decryptedName = enc_db
+        df_MemoryKey = getMemoryKey(decryptedName)
+    
     df_SCDBInfo = getFullSCDBInfo(scdb)
     df_merge = pd.merge(df_MemoryKey, df_SCDBInfo, on=["ID"])
 
     df_merge = filterDfByDates(df_merge, start_date, end_date)
 
-    #getMemoriesFromURL(df_merge)
     df_merge = decryptMemoriesLocal(egocipher, persisted, df_merge, cache_df)
-
+    df_merge = df_merge.replace("", np.nan)
+    df_merge = df_merge.groupby("ID").first().reset_index()
+    df_merge = df_merge.replace(np.nan, "")
     generateReport(df_merge)
     print(f"Report can be found in {outputDir}")
     print(f"Decrypted memories can be found in {outputDir}/DecryptedMemories")
