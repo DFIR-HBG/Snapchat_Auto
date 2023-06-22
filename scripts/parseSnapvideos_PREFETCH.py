@@ -4,14 +4,14 @@ import sys
 import os
 import re
 from shutil import copy2
+import logging
 
-def output(file):
-    print("output")
+logger = logging.getLogger(__name__)
 
 def mergeFiles(files, directory):
     with open("./SnapFixedVideos/"+files[0].split("_")[0]+".mp4", "ab") as full_file:
         for f in files:
-            #print(directory +"/" + f)
+            #logger.info(directory +"/" + f)
             with open(directory + "/" + f, "rb") as part_file:
                 full_file.write(part_file.read())
 
@@ -22,7 +22,7 @@ def getCache(folder):
         for file in fileList:
             if file.endswith("PREFETCH"):
                 os.rename(dir + '/' + file, dir + '/' + file.split('_')[0] + '_0-1')
-                #print("Renaming file")
+                #logger.info("Renaming file")
         fileList = list(filter(pattern.match, os.listdir(dir)))
         fileList.sort()
         prev = []
@@ -33,11 +33,11 @@ def getCache(folder):
             try:
                 file.sort(key=lambda x: int(x.split("_")[1].split("-")[0]))
             except Exception as Error:
-                #print(file)
-                #print(Error)
+                #logger.info(file)
+                #logger.info(Error)
                 os.system("pause")
             if file != prev:
-                #print(file)
+                #logger.info(file)
                 if len(file) > 1:
                     mergeFiles(file, dir)
                 else:
@@ -46,7 +46,7 @@ def getCache(folder):
 def main(Application):
     global pattern
     
-    print("Merging split media files")
+    logger.info("Merging split media files")
     uuid_pattern = re.compile("[A-F0-9-]{36}")
     for root, dirs, files in os.walk(Application):
         if uuid_pattern.match(dirs[0]):
@@ -56,7 +56,7 @@ def main(Application):
     pattern = re.compile("[a-f0-9]{32}_[\dP]")
     os.makedirs("./SnapFixedVideos",exist_ok=True)
     getCache(snapchatFolder)
-    print("Done merging media files")
+    logger.info("Done merging media files")
 
 
 

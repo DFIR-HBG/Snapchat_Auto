@@ -12,6 +12,9 @@ from platform import system
 from pathlib import Path
 from scripts.data import Snapchat_pb2
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def protoParse(schema, data, content_type):
@@ -44,7 +47,7 @@ def encodeChat(message):
 
 
 def getChats(database):
-    print("Parsing messages from: ",database)
+    logger.info("Parsing messages from: ",database)
     db_arroyo =database
     con_arroyo =sqlite3.connect(db_arroyo)
     query_arroyo ="""select
@@ -71,7 +74,7 @@ def getChats(database):
 ##        message, extramessage = (protoParse(schema, row["message_content"], row["content_type"]))
 ##        df_arroyo.loc[index, row["message_content"]] = encodeChat(message)
 ##        df_arroyo.loc[index, row["extramessage_content"]] = encodeChat(extramessage)
-    #print(df_arroyo['message_content'].head())
+    #logger.info(df_arroyo['message_content'].head())
     return df_arroyo
 def getCore(database):
     con_core = sqlite3.connect(database)
@@ -80,7 +83,7 @@ def getCore(database):
     return df
 
 def getFriends(database):
-    print("Parsing friends")
+    logger.info("Parsing friends")
     con = sqlite3.connect(database)
     query ="""SELECT username as Username,
             userId,
@@ -108,17 +111,17 @@ def getFriends(database):
     return df
 
 def getCache(cachePath):
-    print("Getting cached files")
+    logger.info("Getting cached files")
     files = [f for f in os.listdir(cachePath) if os.path.isfile(os.path.join(cachePath, f))]
     for f in files:
-        #print(f)
+        #logger.info(f)
         ftype = filetype.guess(cachePath+'//'+f)
         if os.stat(cachePath+'//'+f).st_size != 0 and ftype != None:
             shutil.copy(cachePath+'//'+f, outputDir +'//cacheFiles')
             try:
                 os.rename(outputDir +'//cacheFiles//'+f,outputDir +'//cacheFiles//'+f.split(".")[0] )
             except Exception as Error:
-                print(Error)
+                logger.error(Error)
                 pass
         else:
             files.remove(f)
@@ -171,7 +174,7 @@ def path_to_image_html(filename):
                 if dots_regex.match(filename):
                     return filename
                 else:
-                    print(Error)
+                    logger.error(Error)
                     return filename + " missing attachment"
             
         else:
@@ -192,7 +195,7 @@ def writeHTML(final_df):
     for index, row in final_df.iterrows():
         final_df.loc[index, 'Message Content'] = path_to_image_html(row["Message Content"])
     
-    print("Writing HTML report")
+    logger.info("Writing HTML report")
     for index, row in final_df.iterrows():
         final_df.loc[index, 'Message Content'] = path_to_image_html(row["Message Content"])
         
@@ -229,7 +232,7 @@ th {
     text_file = open(outputDir + "/Snapchat_report.html", "w", encoding="cp1252")
     text_file.write(html)
     text_file.close()
-    print("Success, report can be found in "+ os.path.abspath(outputDir))
+    logger.info("Success, report can be found in "+ os.path.abspath(outputDir))
     
 def main(snapchatFolder):
     global outputDir
@@ -237,7 +240,7 @@ def main(snapchatFolder):
 
     platform = system()
     #if len(sys.argv) <2:
-    #    print("ParseAndroid.py <Snapchat folder>")
+    #    logger.info("ParseAndroid.py <Snapchat folder>")
     #    sys.exit()
     #snapchatFolder = sys.argv[1]
     #snapchatFolder = output
@@ -249,7 +252,7 @@ def main(snapchatFolder):
     files_chat = getCache(snapchatFolder+"/files/file_manager/chat_snap")
     files_snap = getCache(snapchatFolder+"/files/file_manager/snap")
     df_core = joinCache(df_core,files_chat, files_snap)
-    #print(df_core[df_core['hasImage'] == True]['contentObjectId'].str[-21:])
+    #logger.info(df_core[df_core['hasImage'] == True]['contentObjectId'].str[-21:])
     df_core['fileKey'] = df_core[df_core['hasImage'] == True]['contentObjectId'].str[-21:]
 
     df_chats = getChats(snapchatFolder+"/databases/arroyo.db")

@@ -3,6 +3,9 @@ import sys
 import glob
 import os
 import shutil
+import logging
+
+logger = logging.getLogger(__name__)
 
 def extract(file_name, mode):
 
@@ -10,9 +13,11 @@ def extract(file_name, mode):
                  'Documents/global_scoped',
                  'Documents/com.snap.file_manager_3_SCContent_',
                  'Documents/user.plist',
+                 'Documents/contentmanagerV3_',
                  'Library/Caches/SCPersistentMedia',
                  'group.snapchat.picaboo',
                  'gallery_data_object',
+                 'scdb-27.sqlite',
                  'gallery_encrypted_db',
                  'app_group_plist_storage']
 
@@ -22,7 +27,7 @@ def extract(file_name, mode):
                      
     if mode == "ios":
         if os.path.isdir("Application") or os.path.isdir("AppGroup"):
-            print("""
+            logger.info("""
 ##################################################################################################################
 Application or AppGroup folder already found, assuming files are already extracted. 
 Rename the folders and run again to extract Snapchat data from zip
@@ -30,7 +35,7 @@ Rename the folders and run again to extract Snapchat data from zip
             return os.path.realpath("Application").replace("\\", "/"), os.path.realpath("AppGroup").replace("\\", "/")
     elif mode == "android":
         if os.path.isdir("com.snapchat.android"):
-            print("""
+            logger.info("""
 ##################################################################################################################
 com.snapchat.android folder already found, assuming files are already extracted. 
 Rename the folder and run again to extract Snapchat data from zip
@@ -38,17 +43,17 @@ Rename the folder and run again to extract Snapchat data from zip
             return os.path.realpath("com.snapchat.android").replace("\\", "/")
             
     snapchat_found = False        
-    print(f"Reading contents of zip {file_name}")
+    logger.info(f"Reading contents of zip {file_name}")
     with ZipFile(file_name, 'r') as zip1:
         files_in_zip = zip1.namelist()
-        print(f"{len(files_in_zip)} files found in zip")
-        print("Extracting relevant Snapchat files from zip") 
+        logger.info(f"{len(files_in_zip)} files found in zip")
+        logger.info("Extracting relevant Snapchat files from zip") 
         if mode == "ios":
             files_to_extract = ios_files
         elif mode == "android":
             files_to_extract = android_files
         else:
-            print("Invalid OS when extracting files from zip")
+            logger.error("Invalid OS when extracting files from zip")
             
         if mode == "android":
             try:
@@ -70,15 +75,15 @@ Rename the folder and run again to extract Snapchat data from zip
                                     pass
                         except Exception as err:
                             pass
-                            #print(err)
+                            #logger.info(err)
             except Exception as err:
                 pass
-                #print(err)
+                #logger.info(err)
             if snapchat_found:
-                print("Snapchat files extracted to com.snapchat.android folder")
+                logger.info("Snapchat files extracted to com.snapchat.android folder")
                 return os.path.realpath("com.snapchat.android").replace("\\", "/")
             else:
-                print("Snapchat not found in extraction")
+                logger.warning("Snapchat not found in extraction")
                 os.system("pause")
                         
         if mode == 'ios':
@@ -103,19 +108,19 @@ Rename the folder and run again to extract Snapchat data from zip
                                 pass
                         except Exception as err:
                             pass
-                            #print(err)
+                            #logger.info(err)
             except Exception as err:
                 pass
-                #print(err)
+                #logger.info(err)
             if not os.path.exists("Application"):
-                print("Can't find any Snapchat-files in extraction. Snapchat is probably not installed")
+                logger.warning("Can't find any Snapchat-files in extraction. Snapchat is probably not installed")
                 os.system("pause")
                 sys.exit()
             if not os.path.exists("AppGroup"):
-                print("Snapchat files extracted to Application folder - Could not find files located in AppGroup")
+                logger.info("Snapchat files extracted to Application folder - Could not find files located in AppGroup")
                 return os.path.realpath("Application").replace("\\", "/"), ""
             else:
-                print("Snapchat files extracted to Application and AppGroup folders")
+                logger.info("Snapchat files extracted to Application and AppGroup folders")
                 return os.path.realpath("Application").replace("\\", "/"), os.path.realpath("AppGroup").replace("\\", "/")
             
 

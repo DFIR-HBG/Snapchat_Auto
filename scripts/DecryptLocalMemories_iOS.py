@@ -28,6 +28,11 @@ os.environ["OPENCV_VIDEOCAPTURE_DEBUG"] = "0"
 os.environ["OPENCV_OPENCL_RAISE_ERROR"] = "0"
 import cv2
 #from cv2 import VideoCapture, CAP_PROP_FRAME_COUNT
+import logging
+import json
+from platform import system
+
+logger = logging.getLogger(__name__)
 
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "loglevel;0"
 
@@ -38,14 +43,47 @@ hmac_sz = 0x20
 reserved_sz = salt_sz + hmac_sz
 
 
+def decrypt_sqlcipher(db, egocipher):
+    key = egocipher
+
+    print(f"Dekrypterar {db}")#med nyckel {key}") 
+    if platform == "Windows":
+        if using_exe:
+            try:
+                subprocess.call([f"{exe_path}/scripts/data/sqlcipher3.exe", db,'pragma key="x\'' + key + '\'"', "PRAGMA cipher_compatibility = 3", ".output recovery.sql", ".dump"])
+                print("Decrypted")
+            except Exception as E:
+                logger.error(E)
+                sys.exit()
+        else:
+            try:
+                subprocess.call([f"{exe_path}/data/sqlcipher3.exe", db,'pragma key="x\'' + key + '\'"', "PRAGMA cipher_compatibility = 3", ".output recovery.sql", ".dump"])
+                print("Decrypted")
+            except Exception as E:
+                logger.error(E)
+                sys.exit()
+        recoveredFile = decryptedName
+        if os.path.exists(recoveredFile):
+            os.remove(recoveredFile)
+        recoveredConn = None
+        try:
+            recoveredConn = sqlite3.connect(recoveredFile)
+        except DatabaseError as e:
+            logger.error(e)
+        with open("recovery.sql", "r", encoding="utf-8") as recoverySql:
+            recoveredConn.executescript(recoverySql.read())
+            recoveredConn.close()
+        #os.remove("recovery.sql")
+        logger.info("Database Recovered!")
+
 def decryptGalleryDB(db, egocipher, persisted):
     global header, max_page
     
     if os.path.exists(decryptedName):
-        print(f"Decrypted database {decryptedName} already exists, assuming database is already decrypted")
+        logger.info(f"Decrypted database {decryptedName} already exists, assuming database is already decrypted")
         return
     key = egocipher
-    if persisted is not "":
+    if persisted != "":
         with open("temp.plist", "wb") as f:
             f.write(persisted)
         with open("temp.plist", "rb") as f:
@@ -55,8 +93,8 @@ def decryptGalleryDB(db, egocipher, persisted):
         obj = ccl_bplist.deserialise_NsKeyedArchiver(MEOplist)
         MEOkey = obj["masterKey"]
         MEOiv = obj["initializationVector"]
-    # print(MEOkey)
-    # print(MEOiv)
+    # logger.info(MEOkey)
+    # logger.info(MEOiv)
 
     enc_db = open(db, "rb")
     enc_db_size = os.path.getsize(db)
@@ -69,7 +107,7 @@ def decryptGalleryDB(db, egocipher, persisted):
         for page in range(0, max_page):
             decrypted.write(decrypt_page(page, enc_db, key))
             decrypted.write(b'\x00' * reserved_sz)
-    print(f"Database decrypted: {decryptedName}")
+    logger.info(f"Database decrypted: {decryptedName}")
 
 
 def decrypt_page(page_offset, enc_db, key):
@@ -161,7 +199,7 @@ def silent_error_handler(status, func_name, err_msg, file_name, line, userdata):
     pass
 
 def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
-    print("Preparing for decryption of cached Memories")
+    logger.info("Preparing for decryption of cached Memories")
     if not isinstance(egocipherKey, bytes):
         try:
             egocipherKey = unhexlify(egocipherKey)
@@ -171,7 +209,7 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
                 egocipherKey = base64.b64decode(egocipherKey)
                 persistedKey = base64.b64decode(persistedKey)
             except Exception as E:
-                print("Could not decode keys", E)
+                logger.info("Could not decode keys", E)
 
     if persistedKey != "" and persistedKey != b'':
         df_merge = fixMEOkeys(persistedKey, df_merge)
@@ -180,7 +218,7 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
     
     df_merge["filename"] = ""
     df_merge["overlayFilename"] = ""
-    print("Copying merged media files to cache folder")
+    logger.info("Copying merged media files to cache folder")
     for file in os.listdir("SnapFixedVideos"):
         source = f"SnapFixedVideos/{file}"
         destination = f"{SCContentFolder_path}/{file.split('.')[0]}"
@@ -188,9 +226,9 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
             shutil.copy(source, destination)
         else:
             continue
-            #print(f"Could not copy merged file {source}")
+            #logger.info(f"Could not copy merged file {source}")
     
-    print("Decrypting cached Memories")
+    logger.info("Decrypting cached Memories")
     uuid_counter = 0
     temp_dict = {'ID':[], 'CACHE_KEY':[]}
     for cache_index, cache_row in df_cache.iterrows():
@@ -204,7 +242,7 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
             else:
                 continue
         except Exception as error:
-            print(f"Error finding memory ID {cache_row['EXTERNAL_KEY']} {error}")
+            logger.error(f"Error finding memory ID {cache_row['EXTERNAL_KEY']} {error}")
 
     memory_df = pd.DataFrame(data=temp_dict)
     df_merge = pd.merge(df_merge, memory_df, on=["ID"], how = 'outer')
@@ -231,7 +269,7 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
                 dec_data = aes.decrypt(enc_data)
                 if filetype.guess(dec_data) == None: #Is the original decrypted data not valid?
                     if filetype.guess(dec_data[8:]) == None: #Is the decrypted data without the first 8 bytes not valid?
-                        print(f"Error decrypting {file}")
+                        logger.error(f"Error decrypting {file}")
                         continue
                     else:
                         dec_data = dec_data[8:]
@@ -242,7 +280,7 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
                         f.write(dec_data)
                     decryptedfile = True
                 else:
-                    print(f"could not find file extension of {file}")
+                    logger.error(f"could not find file extension of {file}")
                     shutil.copy(file, f"{outputDir}/DecryptedMemories/{filename}.{unknownFile}")
                     df_merge.loc[merge_index, "filename"] = f"{filename}.unknownFile"
                     continue
@@ -252,7 +290,7 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
                 if fileTypeMime != None:
                     shutil.copy(file, f"{outputDir}/DecryptedMemories/{filename}.{fileTypeMime.extension}")
                 else:
-                    print(f"could not find file extension of {file}")
+                    logger.error(f"could not find file extension of {file}")
                     shutil.copy(file, f"{outputDir}/DecryptedMemories/{filename}.{unknownFile}")
                     df_merge.loc[merge_index, "filename"] = f"{filename}.unknownFile"
                     continue
@@ -279,7 +317,7 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
                         df_merge.loc[merge_index, "filename"] = "FrameCountError"
                         os.remove(resultfile)
                 except Exception as Error:
-                    print(f"Error checking if {filename} is playable, {Error}")
+                    logger.error(f"Error checking if {filename} is playable, {Error}")
             
             # if fileTypeMime is not None:
                 # with open(outputDir + "/DecryptedMemories/" + filename + "." + fileTypeMime.extension, "wb") as f:
@@ -303,7 +341,7 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
                         # else:
                             # df_merge.loc[merge_index, "overlayFilename"] = filename + "." + fileTypeMime.extension
                 # except:
-                    # print(f"could not find file extension of {file}")
+                    # logger.info(f"could not find file extension of {file}")
                     # with open(outputDir + "/DecryptedMemories/" + filename + "." + "nokind", "wb") as f:
                         # f.write(dec_data)
                         # df_merge.loc[merge_index, "filename"] = filename + "." + "nokind"
@@ -311,7 +349,7 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
         except FileNotFoundError as fnfe:
             continue
         except Exception as error:
-            print(f"Error decrypting snap ID {merge_row['ID']} {error}")
+            logger.error(f"Error decrypting snap ID {merge_row['ID']} {error}")
         
         # for filename in os.listdir(SCContentFolder_path):
             # try:
@@ -354,7 +392,7 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
                                                     # else:
                                                         # df_merge.loc[merge_index, "overlayFilename"] = filename + "." + fileTypeMime.extension
                                             # except:
-                                                # print(f"could not find file extension of {file}")
+                                                # logger.info(f"could not find file extension of {file}")
                                                 # with open(outputDir + "/DecryptedMemories/" + filename + "." + "nokind", "wb") as f:
                                                     # f.write(dec_data)
                                                     # df_merge.loc[merge_index, "filename"] = filename + "." + "nokind"
@@ -362,11 +400,11 @@ def decryptMemoriesLocal(egocipherKey, persistedKey, df_merge, df_cache):
                                     # except FileNotFoundError as fnfe:
                                         # continue
                                     # except Exception as error:
-                                        # print(f"Error decryption snap ID {merge_row['ID']} {error}")
+                                        # logger.info(f"Error decryption snap ID {merge_row['ID']} {error}")
             # except Exception as error:
-                # print(f"Error decryption snap ID {merge_row['ID']} {error}")
+                # logger.info(f"Error decryption snap ID {merge_row['ID']} {error}")
     
-    print("Done decrypting Memories")
+    logger.info("Done decrypting Memories")
     return df_merge
 
 
@@ -381,7 +419,7 @@ def timestampsconv(cocoaCore):
 def recoverWithSqlite():
     if os.path.exists("gallery_decrypted.sqlite_r"):
         return True
-    print("Recovering Database")
+    logger.info("Recovering Database")
     subprocess.call(["sqlite3", decryptedName, ".output recovery.sql", ".dump"])
     recoveredFile = decryptedName + "_r"
     if os.path.exists(recoveredFile):
@@ -390,22 +428,22 @@ def recoverWithSqlite():
     try:
         recoveredConn = sqlite3.connect(recoveredFile)
     except DatabaseError as e:
-        print(e)
+        logger.error(e)
     with open("recovery.sql", "r", encoding='utf-8') as recoverySql:
         recoveredConn.executescript(recoverySql.read())
         recoveredConn.close()
     os.remove("recovery.sql")
-    print("Database Recovered!")
+    logger.info("Database Recovered!")
     if checkDatabase(recoveredFile):
-        print("checkdatabase after decryption == True")
+        logger.info("checkdatabase after decryption == True")
         return True
     else:
-        print("checkdatabase after decryption == False")
+        logger.info("checkdatabase after decryption == False")
         return False
 
 
 def recoverWithTool():
-    print(
+    logger.info(
         "OPEN UP THE GALLERY_DECRYPTED.DB IN FORENSIC SQLITE BROWSER - Make sure recovered database is named  GALLERY_DECRYPTED.DB_r")
     os.system("pause")
 
@@ -414,13 +452,13 @@ def isSqliteInstalled() -> bool:
     try:
         subprocess.call(["sqlite3", "-version"], stdout=subprocess.DEVNULL)
     except FileNotFoundError as e:
-        print("SQLite3 not installed")
+        logger.warning("SQLite3 not installed")
         return False
     return True
 
 
 def checkDatabase(db) -> bool:
-    print("Checkdatabase " + db)
+    logger.info("Checkdatabase " + db)
     try:
         conn = sqlite3.connect(db)
         # query = """
@@ -439,7 +477,7 @@ def checkDatabase(db) -> bool:
 
 def recoverDatabase():
     databaseValid = checkDatabase(decryptedName)
-    print(f"checkdatabase == {databaseValid}")
+    logger.info(f"checkdatabase == {databaseValid}")
     if databaseValid:
         return
     else:
@@ -470,23 +508,23 @@ def createFullSnapImages(df_merge):
         except FileNotFoundError:
             pass
         except Exception as error:
-            print(f"Error creating FullSnapImage of snap ID: {row['ID']} | Filename: {row['filename']} | Error: {error}")
+            logger.error(f"Error creating FullSnapImage of snap ID: {row['ID']} | Filename: {row['filename']} | Error: {error}")
 
 
 def generateReport(df_merge):
-    print("Generating report file")
+    logger.info("Generating report file")
     if getattr(sys, 'frozen', False):
         exe_path = sys._MEIPASS
         try:
             shutil.copytree(f"{exe_path}/css", f"{outputDir}/css")
         except:
-            print("Could not copy the CSS folder, result might look a bit worse")
+            logger.error("Could not copy the CSS folder, result might look a bit worse")
     else:
         exe_path = os.path.dirname(os.path.abspath(__file__))
         try:
             shutil.copytree(f"{exe_path}/data/css", f"{outputDir}/css")
         except:
-            print("Could not copy the CSS folder, result might look a bit worse")
+            logger.error("Could not copy the CSS folder, result might look a bit worse")
 
     filePath = f"./DecryptedMemories/"
     createFullSnapImages(df_merge)
@@ -498,7 +536,7 @@ def generateReport(df_merge):
             memoryType = "Memory"
         id = row['ZSNAPID']
         format = int(row['ZMEDIATYPE'])
-        columns = ['ID', 'Memory Type', 'Image', 'Overlay', 'Create Time (UTC)', 'Capture Time (UTC)', 'Duration', 'Camera', 'longitude', 'latitude']
+        columns = ['ID', 'Memory Type', 'Image', 'Overlay', 'Create Time (UTC)', 'Capture Time (UTC)', 'Duration', 'Camera', 'latitude', 'longitude']
         createTime = timestampsconv(row['ZCREATETIMEUTC'])
         captureTime = timestampsconv(row['ZCAPTURETIMEUTC'])
         duration = row['ZDURATION']
@@ -513,8 +551,8 @@ def generateReport(df_merge):
                            captureTime,
                            duration,
                            camera,
-                           row['longitude'],
-                           row['latitude']
+                           row['latitude'],
+                           row['longitude']
                            ]
             else:
                 rowData = [id,
@@ -525,8 +563,8 @@ def generateReport(df_merge):
                            captureTime,
                            duration,
                            camera,
-                           row['longitude'],
-                           row['latitude']
+                           row['latitude'],
+                           row['longitude']
                            ]
         else:
             if format == 0:
@@ -539,8 +577,8 @@ def generateReport(df_merge):
                            captureTime,
                            duration,
                            camera,
-                           row['longitude'],
-                           row['latitude']
+                           row['latitude'],
+                           row['longitude']
                            ]
             else:
                 rowData = [id,
@@ -551,13 +589,13 @@ def generateReport(df_merge):
                            captureTime,
                            duration,
                            camera,
-                           row['longitude'],
-                           row['latitude']
+                           row['latitude'],
+                           row['longitude']
                            ]
         df_row = pd.DataFrame([rowData], columns=columns)
         df_report = pd.concat([df_report, df_row])
         df_report.sort_values(by=["Create Time (UTC)"], ascending=True, inplace=True)
-        #print(f'Records Added to Report: {len(df_report)}')
+        #logger.info(f'Records Added to Report: {len(df_report)}')
 
     template = """
     <body>%s
@@ -586,7 +624,7 @@ def generateReport(df_merge):
                                                                              "not locally stored")
     with open(f'{outputDir}/Report.html', 'w') as f:
         f.write(html)
-    print(f'Decrypted {len(df_report)} Memories/MEO and added them to report')
+    logger.info(f'Decrypted {len(df_report)} Memories/MEO and added them to report')
 
 
 def makeImg(src):
@@ -636,25 +674,27 @@ def filterDfByDates(df_merge, start_date, end_date):
 def readKeychain(keychain):
     egocipher = ""
     persisted = ""
-    with open(keychain, "rb") as f:
-        keychain_plist = plistlib.load(f)
     try:  # GK Keychain
+        with open(keychain, "rb") as f:
+            keychain_plist = plistlib.load(f)
         for x in keychain_plist.values():
             for y in x:
                 if 'agrp' in y.keys():
                     if b'3MY7A92V5W.com.toyopagroup.picaboo' == y['agrp']:
-                        # print("snapchat")
+                        # logger.info("snapchat")
                         if 'gena' in y.keys():
                             if b'com.snapchat.keyservice.persistedkey' == y['gena']:
-                                # print("persisted")
-                                # print(y['v_Data'])
+                                # logger.info("persisted")
+                                # logger.info(y['v_Data'])
                                 persisted = y['v_Data']
                             elif b'egocipher.key.avoidkeyderivation' == y['gena']:
                                 egocipher = y['v_Data']
     except:
         try:  # Premium Keychain
+            with open(keychain, "rb") as f:
+                keychain_plist = plistlib.load(f)
             if "keychainEntries" in keychain_plist.keys():
-                print("Decrypting UFED keychain")
+                logger.info("Decrypting UFED keychain")
                 convert_keychain.main(keychain, "decrypted_keychain.plist")
                 with open("decrypted_keychain.plist", "rb") as f:
                     keychain_plist = plistlib.load(f)
@@ -663,15 +703,30 @@ def readKeychain(keychain):
                         if y['agrp'] == "3MY7A92V5W.com.toyopagroup.picaboo" and 'gena' in y.keys():
                             if y['gena'] == b'com.snapchat.keyservice.persistedkey':
                                 persisted = y['v_Data']
-                                print(f"Persisted key for MEO found")
+                                logger.info(f"Persisted key for MEO found")
                             elif y['gena'] == b'egocipher.key.avoidkeyderivation':
                                 egocipher = y['v_Data']
-                                print(f"Egocipher key for Memories found")
-        except Exception as error:
-            print("Could not read keychain, this is unexpected, contact author", error)
+                                logger.info(f"Egocipher key for Memories found")
+        except:
+            try: #Objection keychain dump
+                with open(keychain, 'rb') as f:
+                    json_data = json.load(f)
+                for i in json_data:
+                    if i['account'] == "egocipher.key.avoidkeyderivation":
+                        egocipher = i['dataHex']
+                    elif i['account'] == "com.snapchat.keyservice.persistedkey":
+                        persisted = i['dataHex']
+            except Exception as error:
+                logger.error("Could not read keychain, this is unexpected, contact author", error)
+                
     if egocipher == "" or egocipher == b'':
-        print("Could not find correct key (egocipher) in keychain, please verify manually and contact the author if "
+        logger.info("Could not find correct key (egocipher) in keychain, please verify manually and contact the author if "
               "it is present")
+    
+    if isinstance(egocipher, bytes):
+        egocipher = egocipher.hex()
+    if isinstance(persisted, bytes):
+        persisted = persisted.hex()
               
     return egocipher, persisted
 
@@ -680,8 +735,20 @@ def main(enc_db, scdb, keychain, cache_df, SCContentFolder):
     global decryptedName
     global outputDir
     global SCContentFolder_path
+    global exe_path
+    global platform
+    global using_exe
     
-    print("Decrypting locally stored Memories and MEO")
+    platform = system()
+    
+    if getattr(sys, 'frozen', False):
+        exe_path = sys._MEIPASS
+        using_exe = True
+    else:
+        exe_path = os.path.dirname(os.path.abspath(__file__))
+        using_exe = False
+        
+    logger.info("Decrypting locally stored Memories and MEO")
 
     outputDir = "./Snapchat_LocalMemories_report_" + datetime.today().strftime('%Y%m%d_%H%M%S')
     os.makedirs(outputDir + "//DecryptedMemories", exist_ok=True)
@@ -700,37 +767,46 @@ def main(enc_db, scdb, keychain, cache_df, SCContentFolder):
 
     if not isSqliteInstalled():
         return cache_df
-
-    egocipher, persisted = readKeychain(keychain)
-    if egocipher == "" or egocipher == b'':
-        print("Could not find keys for memories in keychain, skipping this step")
-        shutil.rmtree(outputDir)
-        return cache_df
-    if not checkDatabase(enc_db):
-        decryptGalleryDB(enc_db, egocipher, persisted)
-        success = recoverDatabase()
-        if not success:
-            print(f"{os.path.basename(enc_db)} is empty or not decrypted, cannot decrypt memories")
+        
+    try:
+        egocipher, persisted = readKeychain(keychain)
+        if egocipher == "" or egocipher == b'':
+            logger.info("Could not find keys for memories in keychain, skipping this step")
+            shutil.rmtree(outputDir)
             return cache_df
-        df_MemoryKey = getMemoryKey(decryptedName + "_r")
-    else:
-        print("Gallery database is already decrypted")
-        decryptedName = enc_db
-        df_MemoryKey = getMemoryKey(decryptedName)
+        if not checkDatabase(enc_db):
+            decrypt_sqlcipher(enc_db, egocipher)
+            # decryptGalleryDB(enc_db, egocipher, persisted)
+            # success = recoverDatabase()
+            # if not success:
+                # logger.info(f"{os.path.basename(enc_db)} is empty or not decrypted, cannot decrypt memories")
+                # return cache_df
+            df_MemoryKey = getMemoryKey(decryptedName)
+        else:
+            logger.info("Gallery database is already decrypted")
+            decryptedName = enc_db
+            df_MemoryKey = getMemoryKey(decryptedName)
+        
+        if len(df_MemoryKey) == 0:
+            logger.info(f"No keys for memories could be found in {decryptedName} - Aborting")
+            return
     
-    df_SCDBInfo = getFullSCDBInfo(scdb)
-    df_merge = pd.merge(df_MemoryKey, df_SCDBInfo, on=["ID"])
+        df_SCDBInfo = getFullSCDBInfo(scdb)
+        df_merge = pd.merge(df_MemoryKey, df_SCDBInfo, on=["ID"])
 
-    df_merge = filterDfByDates(df_merge, start_date, end_date)
+        df_merge = filterDfByDates(df_merge, start_date, end_date)
 
-    df_merge = decryptMemoriesLocal(egocipher, persisted, df_merge, cache_df)
-    df_merge = df_merge.replace("", np.nan)
-    df_merge = df_merge.groupby("ID").first().reset_index()
-    df_merge = df_merge.replace(np.nan, "")
-    generateReport(df_merge)
-    print(f"Report can be found in {outputDir}")
-    print(f"Decrypted memories can be found in {outputDir}/DecryptedMemories")
-    return df_merge
+        df_merge = decryptMemoriesLocal(egocipher, persisted, df_merge, cache_df)
+        df_merge = df_merge.replace("", np.nan)
+        df_merge = df_merge.groupby("ID").first().reset_index()
+        df_merge = df_merge.replace(np.nan, "")
+        generateReport(df_merge)
+        logger.info(f"Report can be found in {outputDir}")
+        logger.info(f"Decrypted memories can be found in {outputDir}/DecryptedMemories")
+        return df_merge
+    except Exception as Error:
+        logger.info(f"Error: {Error}")
+        logger.info("Something went wrong, contact author if you have any questions")
 
 
 if __name__ == "__main__":
