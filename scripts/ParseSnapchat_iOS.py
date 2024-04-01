@@ -216,7 +216,7 @@ def getUserID_username_FromGroups():
 
 def getUserIDFromArroyo(arroyo):
     logger.info("Getting User ID from arroyo")
-    conn = sqlite3.connect(arroyo)
+    conn = sqlite3.connect(f"file:{arroyo}?mode=ro", uri=True)    
     messagesQuery = """select
     value as value
     from required_values where key = "USERID"
@@ -360,7 +360,7 @@ def getFriendsAppGroupPlistStorage(app_group_plist_storage_list, arroyo):
         group_concat(user_id) as "User ID"
         from user_conversation where conversation_type is 1
         group by client_conversation_id"""
-        conn = sqlite3.connect(arroyo)
+        conn = sqlite3.connect(f"file:{arroyo}?mode=ro", uri=True)
         df = pd.read_sql_query(query, conn)
         grupper = {"Group Name":[], "Participants": [], "Conversation ID": []}
 
@@ -513,7 +513,7 @@ def getFriendsPrimary_DisplayMetadata(primary, arroyo):
     #logger.info("Gathering friends from " + ntpath.basename(primary))
     logger.warning("WARNING - MIGHT contain users that are not friends")
     try:
-        conn = sqlite3.connect(primary)
+        conn = sqlite3.connect(f"file:{primary}?mode=ro", uri=True)
         messagesQuery = """select
         userId as 'User ID',
         p as 'Display Name'
@@ -540,7 +540,7 @@ def getFriendsPrimary_DisplayMetadata(primary, arroyo):
                 df_friends.loc[index, "Display Name"] = ""
                 logger.error(f"Could not find Display name for user {row['User ID']}, {Error}")
 
-        conn = sqlite3.connect(arroyo)
+        conn = sqlite3.connect(f"file:{arroyo}?mode=ro", uri=True)
         messagesQuery = """select
         user_id as 'User ID',
         client_conversation_id as 'Conversation ID',
@@ -571,7 +571,7 @@ def getFriendsPrimary_DisplayMetadata(primary, arroyo):
         group_concat(user_id) as "User ID"
         from user_conversation where conversation_type is 1
         group by client_conversation_id"""
-        conn = sqlite3.connect(arroyo)
+        conn = sqlite3.connect(f"file:{arroyo}?mode=ro", uri=True)
         df = pd.read_sql_query(query, conn)
         grupper = {"Conversation ID": [], "Participants": []}
 
@@ -592,7 +592,7 @@ def getFriendsPrimary_DisplayMetadata(primary, arroyo):
 
         df_group = pd.DataFrame(grupper)
         
-        conn = sqlite3.connect(primary)
+        conn = sqlite3.connect(f"file:{primary}?mode=ro", uri=True)
         messagesQuery = """select
         snapchatter.userId as 'User ID',
         snapchatter.rowid,
@@ -616,7 +616,7 @@ def getFriendsPrimary(primary, arroyo):
     logger.info(f"Gathering friends from {ntpath.basename(primary)}(Snapchatters)")
     logger.warning("WARNING - WILL contain users that are not friends")
     try:
-        conn = sqlite3.connect(primary)
+        conn = sqlite3.connect(f"file:{primary}?mode=ro", uri=True)
         messagesQuery = """select
         snapchatter.userId as 'User ID',
         snapchatter.rowid,
@@ -630,7 +630,7 @@ def getFriendsPrimary(primary, arroyo):
         if len(df_friends) == 0:
             raise Exception
         
-        conn = sqlite3.connect(arroyo)
+        conn = sqlite3.connect(f"file:{arroyo}?mode=ro", uri=True)
         messagesQuery = """select
         user_id as 'User ID',
         client_conversation_id as 'Conversation ID',
@@ -661,7 +661,7 @@ def getFriendsPrimary(primary, arroyo):
         group_concat(user_id) as "User ID"
         from user_conversation where conversation_type is 1
         group by client_conversation_id"""
-        conn = sqlite3.connect(arroyo)
+        conn = sqlite3.connect(f"file:{arroyo}?mode=ro", uri=True)
         df = pd.read_sql_query(query, conn)
         grupper = {"Conversation ID": [], "Participants": []}
 
@@ -731,7 +731,7 @@ def fixSenders(df_messages, df_friends, df_snapchatter):
 def getCacheArroyo(arroyo, cache_df):
     cache_df = cache_df.reset_index()
     logger.info("Getting cache files from " + ntpath.basename(arroyo))
-    conn = sqlite3.connect(arroyo)
+    conn = sqlite3.connect(f"file:{arroyo}?mode=ro", uri=True)
     messagesQuery = """select
             client_conversation_id as client_conversation_id,
             server_message_id as server_message_id,
@@ -811,7 +811,7 @@ def getCache(cachecontroller):
                 # foundFiles = foundFiles + files
         # logger.info(f"Getting cache files from {ntpath.basename(cachecontroller)} and {SCContentFolder.split('/')[-2]}")
         logger.info(f"Getting cache info from {ntpath.basename(cachecontroller)}")
-        conn = sqlite3.connect(cachecontroller)
+        conn = sqlite3.connect(f"file:{cachecontroller}?mode=ro", uri=True)
         if uuid != "":
             messagesQuery = f"""select
             *
@@ -863,7 +863,7 @@ def getContentmanager(contentmanager):
     logger.info("Getting cache info from contentmanager")
     df_content = pd.DataFrame()
     try:
-        conn = sqlite3.connect(contentmanager)
+        conn = sqlite3.connect(f"file:{contentmanager}?mode=ro", uri=True)
         messagesQuery = f"""
         select 
         *
@@ -876,7 +876,7 @@ def getContentmanager(contentmanager):
         df_content = pd.read_sql_query(messagesQuery, conn)
     except pd.io.sql.DatabaseError:
         try:
-            conn = sqlite3.connect(contentmanager)
+            conn = sqlite3.connect(f"file:{contentmanager}?mode=ro", uri=True)
             messagesQuery = f"""
             select 
             KEY as CONTENT_KEY
@@ -890,7 +890,7 @@ def getContentmanager(contentmanager):
             df_content = pd.read_sql_query(messagesQuery, conn)
         except:
             try:
-                conn = sqlite3.connect(contentmanager)
+                conn = sqlite3.connect(f"file:{contentmanager}?mode=ro", uri=True)
                 messagesQuery = f"""
                 select 
                 *
@@ -989,7 +989,7 @@ def mergeCache(df_cache, df_content):
 def getChats(database):
     logger.info("")
     logger.info("Getting chats from " + ntpath.basename(database))
-    conn = sqlite3.connect(database)
+    conn = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
 
     messagesQuery = """select
     client_conversation_id as client_conversation_id,
@@ -1254,7 +1254,7 @@ def getSCPersistentMedia():
     
 def getLocalUserDisplayname(friends_df, primaryDoc):
     
-    conn = sqlite3.connect(primaryDoc)
+    conn = sqlite3.connect(f"file:{primaryDoc}?mode=ro", uri=True)
     messagesQuery = f"""select
     userId as 'User ID',
     p as 'Display Name'
