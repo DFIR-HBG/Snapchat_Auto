@@ -67,7 +67,7 @@ def decrypt_sqlcipher(db, egocipher):
             os.remove(recoveredFile)
         recoveredConn = None
         try:
-            recoveredConn = sqlite3.connect(recoveredFile)
+            recoveredConn = sqlite3.connect(f"file:{recoveredFile}?mode=ro", uri=True)
         except DatabaseError as e:
             logger.error(e)
         with open("recovery.sql", "r", encoding="utf-8") as recoverySql:
@@ -124,7 +124,7 @@ def decrypt_page(page_offset, enc_db, key):
 
 
 def getMemoryKey(db):
-    conn = sqlite3.connect(db)
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     query = """
 	select
 	snap_key_iv.snap_id as ID,
@@ -143,7 +143,7 @@ def getMemoryKey(db):
 
 
 def getSCDBInfo(db):
-    conn = sqlite3.connect(db)
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     query = """
 	select
 	ZSNAPID as ID,
@@ -158,7 +158,7 @@ def getSCDBInfo(db):
 
 
 def getFullSCDBInfo(db):
-    conn = sqlite3.connect(db)
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     query = """
 	select
 	ZSNAPID as ID,
@@ -426,7 +426,7 @@ def recoverWithSqlite():
         os.remove(recoveredFile)
     recoveredConn = None
     try:
-        recoveredConn = sqlite3.connect(recoveredFile)
+        recoveredConn = sqlite3.connect(f"file:{recoveredFile}?mode=ro", uri=True)
     except DatabaseError as e:
         logger.error(e)
     with open("recovery.sql", "r", encoding='utf-8') as recoverySql:
@@ -460,7 +460,7 @@ def isSqliteInstalled() -> bool:
 def checkDatabase(db) -> bool:
     logger.info("Checkdatabase " + db)
     try:
-        conn = sqlite3.connect(db)
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         # query = """
 		# SELECT name FROM sqlite_schema
 		# WHERE type='table'

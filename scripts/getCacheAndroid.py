@@ -48,8 +48,8 @@ def encodeChat(message):
 
 def getChats(database):
     logger.info("Parsing messages from: ",database)
-    db_arroyo =database
-    con_arroyo =sqlite3.connect(db_arroyo)
+    db_arroyo = database
+    con_arroyo = sqlite3.connect(f"file:{db_arroyo}?mode=ro", uri=True)
     query_arroyo ="""select
     client_conversation_id as 'Client Conversation ID',
     server_message_id,
@@ -77,14 +77,14 @@ def getChats(database):
     #logger.info(df_arroyo['message_content'].head())
     return df_arroyo
 def getCore(database):
-    con_core = sqlite3.connect(database)
+    con_core = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
     query_core = """SELECT contentObjectId, cacheKey from DataConsumption WHERE contentType == 'chat_snap' OR contentType == 'snap'"""
     df = pd.read_sql_query(query_core, con_core)
     return df
 
 def getFriends(database):
     logger.info("Parsing friends")
-    con = sqlite3.connect(database)
+    con = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
     query ="""SELECT username as Username,
             userId,
             displayName as Displayname
